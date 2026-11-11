@@ -51,7 +51,8 @@ jobs:
           }
           printf '%s' "$FLEXGRAM_CONFIGURATION_JSON" > "$RUNNER_TEMP/flexgram-configuration.json"
           python3 -m json.tool "$RUNNER_TEMP/flexgram-configuration.json" >/dev/null
-          # This CI artifact is intentionally unsigned. Sideloadly adds the user's signing identity later.
+          # Bazel requires a team identifier for its Xcode-managed profile target. This synthetic value is only
+          # for the unsigned CI artifact; Sideloadly replaces signing data when installing it.
           python3 - "$RUNNER_TEMP/flexgram-configuration.json" <<'PY'
           import json
           import sys
@@ -59,7 +60,7 @@ jobs:
           path = sys.argv[1]
           with open(path) as source:
               configuration = json.load(source)
-          configuration["team_id"] = ""
+          configuration["team_id"] = "FLEXGR4M00"
           with open(path, "w") as destination:
               json.dump(configuration, destination)
           PY
