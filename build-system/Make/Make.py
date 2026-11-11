@@ -484,8 +484,12 @@ def resolve_configuration(base_path, bazel_command_line: BazelCommandLine, argum
         additional_codesigning_output_path=additional_codesigning_output_path
     )
     if codesigning_data.aps_environment is None:
-        print('Could not find a valid aps-environment entitlement in the provided provisioning profiles')
-        sys.exit(1)
+        if getattr(arguments, 'allowMissingApsEnvironment', False):
+            print('No matching provisioning profile; building without aps-environment for later local signing')
+            codesigning_data.aps_environment = ''
+        else:
+            print('Could not find a valid aps-environment entitlement in the provided provisioning profiles')
+            sys.exit(1)
 
     if bazel_command_line is not None:
         build_configuration.write_to_variables_file(bazel_path=bazel_command_line.bazel, use_xcode_managed_codesigning=codesigning_data.use_xcode_managed_codesigning, aps_environment=codesigning_data.aps_environment, path=configuration_repository_path + '/variables.bzl')
@@ -851,6 +855,13 @@ def add_codesigning_common_arguments(current_parser: argparse.ArgumentParser):
         help='''
             Let Xcode manage your certificates and provisioning profiles.
             ''',
+    )
+
+    current_parser.add_argument(
+        '--allowMissingApsEnvironment',
+        action='store_true',
+        default=False,
+        help='Allow unsigned builds without a matching push-notification provisioning profile; sign locally later.'
     )
 
     current_parser.add_argument(

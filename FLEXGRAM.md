@@ -17,7 +17,7 @@ FlexGram добавлен в официальный репозиторий Teleg
 
 Workflow .github/workflows/flexgram-unsigned-ipa.yml запускается после push в ветку flexgram или вручную на GitHub Actions macOS с Xcode 27.1. Перед первым запуском:
 
-1. Создайте собственный API ID и API hash Telegram и подготовьте конфигурацию на основе build-system/template_minimal_development_configuration.json с собственным bundle_id, api_id, api_hash и team_id.
+1. Создайте собственные API ID и API hash Telegram и подготовьте конфигурацию на основе build-system/template_minimal_development_configuration.json с собственным bundle_id, api_id и api_hash. Для этой неподписанной сборки team_id можно не указывать или оставить пустым; APNs entitlement не включается, а Sideloadly подпишет IPA вашим Apple ID.
 2. Сохраните весь JSON конфигурации в секрете репозитория GitHub FLEXGRAM_CONFIGURATION_JSON.
 3. Запустите workflow вручную. Он собирает arm64 IPA с upstream fake-codesigning и сохраняет артефакт FlexGram-unsigned-ipa на 7 дней.
 4. Скачанный IPA можно передать Sideloadly для подписи вашим Apple ID. Сам workflow не подписывает IPA вашим сертификатом и не публикует его.
