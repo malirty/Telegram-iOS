@@ -76,6 +76,7 @@ jobs:
             --codesigningInformationPath=build-system/fake-codesigning \
             --allowMissingApsEnvironment \
             --disableProvisioningProfiles \
+            --disableExtensions \
             --buildNumber="$GITHUB_RUN_NUMBER" \
             --configuration=release_arm64
           test -f bazel-bin/Telegram/Telegram.ipa
