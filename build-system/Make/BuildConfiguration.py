@@ -294,16 +294,23 @@ class GitCodesigningSource(CodesigningSource):
 
 
 class DirectoryCodesigningSource(CodesigningSource):
-    def __init__(self, directory_path, team_id, bundle_id):
+    def __init__(self, directory_path, team_id, bundle_id, allow_unmatched_profiles=False):
         self.directory_path = directory_path
         self.team_id = team_id
         self.bundle_id = bundle_id
+        self.allow_unmatched_profiles = allow_unmatched_profiles
 
     def load_data(self, working_dir):
         pass
 
     def copy_profiles_to_destination(self, destination_path):
-        copy_profiles_from_directory(source_path=self.directory_path + '/profiles', destination_path=destination_path, team_id=self.team_id, bundle_id=self.bundle_id)
+        if self.allow_unmatched_profiles:
+            # Fake profiles are only build inputs; Sideloadly replaces them when installing the IPA.
+            for file_name in os.listdir(self.directory_path + '/profiles'):
+                if file_name.endswith('.mobileprovision'):
+                    shutil.copyfile(self.directory_path + '/profiles/' + file_name, destination_path + '/' + file_name)
+        else:
+            copy_profiles_from_directory(source_path=self.directory_path + '/profiles', destination_path=destination_path, team_id=self.team_id, bundle_id=self.bundle_id)
 
     def resolve_aps_environment(self):
         return resolve_aps_environment_from_directory(source_path=self.directory_path + '/profiles', team_id=self.team_id, bundle_id=self.bundle_id)

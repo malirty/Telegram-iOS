@@ -429,10 +429,15 @@ def resolve_codesigning(arguments, base_path, build_configuration, provisioning_
             always_fetch=not arguments.gitCodesigningUseCurrent
         )
     elif arguments.codesigningInformationPath is not None:
+        allow_unmatched_profiles = (
+            getattr(arguments, 'allowMissingApsEnvironment', False)
+            and os.path.normpath(arguments.codesigningInformationPath).endswith(os.path.normpath('build-system/fake-codesigning'))
+        )
         profile_source = DirectoryCodesigningSource(
             directory_path=arguments.codesigningInformationPath,
             team_id=build_configuration.team_id,
-            bundle_id=build_configuration.bundle_id
+            bundle_id=build_configuration.bundle_id,
+            allow_unmatched_profiles=allow_unmatched_profiles
         )
     elif arguments.xcodeManagedCodesigning is not None and arguments.xcodeManagedCodesigning == True:
         profile_source = XcodeManagedCodesigningSource()
