@@ -51,6 +51,18 @@ jobs:
           }
           printf '%s' "$FLEXGRAM_CONFIGURATION_JSON" > "$RUNNER_TEMP/flexgram-configuration.json"
           python3 -m json.tool "$RUNNER_TEMP/flexgram-configuration.json" >/dev/null
+          # This CI artifact is intentionally unsigned. Sideloadly adds the user's signing identity later.
+          python3 - "$RUNNER_TEMP/flexgram-configuration.json" <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          with open(path) as source:
+              configuration = json.load(source)
+          configuration["team_id"] = ""
+          with open(path, "w") as destination:
+              json.dump(configuration, destination)
+          PY
 
       - name: Build unsigned device IPA
         shell: bash
