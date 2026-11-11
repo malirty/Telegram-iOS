@@ -1,0 +1,69 @@
+name: FlexGram unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - flexgram
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Telegram-iOS versions.json currently pins Xcode 27.1 / macOS 27.
+    runs-on: xcode-27
+    timeout-minutes: 360
+    steps:
+      - name: Check out source and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Select the repository-pinned Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_VERSION="$(python3 -c 'import json; print(json.load(open("versions.json"))["xcode"])')"
+          XCODE_PATH="/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer"
+          test -d "$XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: Prepare app configuration
+        shell: bash
+        env:
+          FLEXGRAM_CONFIGURATION_JSON: ${{ secrets.FLEXGRAM_CONFIGURATION_JSON }}
+        run: |
+          set -euo pipefail
+          test -n "$FLEXGRAM_CONFIGURATION_JSON" || {
+            echo "Add FLEXGRAM_CONFIGURATION_JSON in repository Actions secrets."
+            exit 1
+          }
+          printf '%s' "$FLEXGRAM_CONFIGURATION_JSON" > "$RUNNER_TEMP/flexgram-configuration.json"
+          python3 -m json.tool "$RUNNER_TEMP/flexgram-configuration.json" >/dev/null
+
+      - name: Build unsigned device IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
+          python3 -u build-system/Make/Make.py \
+            --cacheDir="$HOME/telegram-bazel-cache" \
+            build \
+            --configurationPath="$RUNNER_TEMP/flexgram-configuration.json" \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --buildNumber="$GITHUB_RUN_NUMBER" \
+            --configuration=release_arm64
+          test -f bazel-bin/Telegram/Telegram.ipa
+          mkdir -p build/artifacts
+          cp bazel-bin/Telegram/Telegram.ipa build/artifacts/FlexGram-unsigned.ipa
+
+      - name: Upload IPA for Sideloadly
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlexGram-unsigned-ipa
+          path: build/artifacts/FlexGram-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7

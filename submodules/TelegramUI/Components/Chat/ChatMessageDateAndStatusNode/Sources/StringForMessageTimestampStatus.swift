@@ -4,6 +4,7 @@ import TelegramPresentationData
 import TelegramUIPreferences
 import TelegramStringFormatting
 import TextFormat
+import FlexGram
 import LocalizedPeerData
 import AccountContext
 
@@ -113,6 +114,9 @@ public func messageTimestampStatusAuthorTitle(context: AccountContext, message: 
                 }
             }
         }
+    }
+    if message.author?.id == context.account.peerId, let localName = FlexGramLocalSettings.outgoingAuthorNameOverride {
+        authorTitle = localName
     }
     return authorTitle
 }
