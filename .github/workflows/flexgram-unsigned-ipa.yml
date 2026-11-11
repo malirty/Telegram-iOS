@@ -68,14 +68,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
           python3 -u build-system/Make/Make.py \
             --cacheDir="$HOME/telegram-bazel-cache" \
             build \
             --configurationPath="$RUNNER_TEMP/flexgram-configuration.json" \
-            --codesigningInformationPath=build-system/fake-codesigning \
+            --xcodeManagedCodesigning \
             --allowMissingApsEnvironment \
-            --disableProvisioningProfiles \
             --disableExtensions \
             --buildNumber="$GITHUB_RUN_NUMBER" \
             --configuration=release_arm64
