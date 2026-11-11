@@ -51,8 +51,8 @@ jobs:
           }
           printf '%s' "$FLEXGRAM_CONFIGURATION_JSON" > "$RUNNER_TEMP/flexgram-configuration.json"
           python3 -m json.tool "$RUNNER_TEMP/flexgram-configuration.json" >/dev/null
-          # Bazel requires a team identifier for its Xcode-managed profile target. This synthetic value is only
-          # for the unsigned CI artifact; Sideloadly replaces signing data when installing it.
+          # A synthetic team value is used only by the fake local profile. Sideloadly replaces the
+          # profile and signing data when installing the artifact.
           python3 - "$RUNNER_TEMP/flexgram-configuration.json" <<'PY'
           import json
           import sys
@@ -69,11 +69,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/flexgram-codesigning/profiles" "$RUNNER_TEMP/flexgram-codesigning/certs"
+          cp build-system/fake-codesigning/certs/* "$RUNNER_TEMP/flexgram-codesigning/certs/"
+          python3 build-system/Make/GenerateUnsignedProfile.py \
+            --source-profile=build-system/fake-codesigning/profiles/Telegram.mobileprovision \
+            --certificate=build-system/fake-codesigning/certs/SelfSigned.p12 \
+            --bundle-id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["bundle_id"])' "$RUNNER_TEMP/flexgram-configuration.json")" \
+            --team-id=FLEXGR4M00 \
+            --output="$RUNNER_TEMP/flexgram-codesigning/profiles/Telegram.mobileprovision"
+          python3 build-system/Make/ImportCertificates.py --path "$RUNNER_TEMP/flexgram-codesigning/certs"
           python3 -u build-system/Make/Make.py \
             --cacheDir="$HOME/telegram-bazel-cache" \
             build \
             --configurationPath="$RUNNER_TEMP/flexgram-configuration.json" \
-            --xcodeManagedCodesigning \
+            --codesigningInformationPath="$RUNNER_TEMP/flexgram-codesigning" \
             --allowMissingApsEnvironment \
             --disableExtensions \
             --buildNumber="$GITHUB_RUN_NUMBER" \
