@@ -249,7 +249,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     private var statusBarHost: ApplicationStatusBarHost?
     private var dataImportSplash: LegacyDataImportSplash?
     private var memoryUsageOverlayView: UILabel?
-    private var flexGramGiftTimer: Timer?
+    private var flexGramGiftTimer: Foundation.Timer?
     
     private let crashReportPromptDisposable = MetaDisposable()
     private var buildConfig: BuildConfig?
@@ -2162,7 +2162,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     func handleDidBecomeActive() {
         _ = FlexGramOverrides.deliverDueGifts()
         self.flexGramGiftTimer?.invalidate()
-        let flexGramGiftTimer = Timer(timeInterval: 1.0, repeats: true) { _ in
+        let flexGramGiftTimer = Foundation.Timer(timeInterval: 1.0, repeats: true) { _ in
             _ = FlexGramOverrides.deliverDueGifts()
         }
         RunLoop.main.add(flexGramGiftTimer, forMode: .common)

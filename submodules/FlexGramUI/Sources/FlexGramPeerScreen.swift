@@ -908,7 +908,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
     private let peerId: Int64
     private let peerTitle: String
     private let presentationData: PresentationData
-    private var deliveryTimer: Timer?
+    private var deliveryTimer: Foundation.Timer?
 
     public init(context: AccountContext, peerId: Int64, peerTitle: String) {
         self.context = context
@@ -937,7 +937,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
         super.viewDidAppear(animated)
         if self.isNodeLoaded { self.node.refreshLocalValues() }
         self.deliveryTimer?.invalidate()
-        self.deliveryTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        self.deliveryTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             if FlexGramOverrides.deliverDueGifts() > 0, self.isNodeLoaded {
                 self.node.refreshLocalValues()
