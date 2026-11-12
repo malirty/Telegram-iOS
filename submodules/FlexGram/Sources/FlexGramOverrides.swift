@@ -1,15 +1,21 @@
 import Foundation
 import UIKit
+import TelegramCore
 
 public struct FlexGramGift: Codable {
     public let kind: String
     public let background: String
     public let pattern: String
+    /// Read-only Telegram catalogue media copied into a local presentation record.
+    public let catalogueGift: StarGift?
+    public let collectibleAttributes: [StarGift.UniqueGift.Attribute]?
 
-    public init(kind: String, background: String, pattern: String) {
+    public init(kind: String, background: String, pattern: String, catalogueGift: StarGift? = nil, collectibleAttributes: [StarGift.UniqueGift.Attribute]? = nil) {
         self.kind = kind
         self.background = background
         self.pattern = pattern
+        self.catalogueGift = catalogueGift
+        self.collectibleAttributes = collectibleAttributes
     }
 }
 
@@ -19,12 +25,18 @@ public enum FlexGramOverrides {
 
     public static var virtualStars: Int {
         get { max(0, defaults.integer(forKey: "flexgram.virtualStars")) }
-        set { defaults.set(max(0, newValue), forKey: "flexgram.virtualStars") }
+        set {
+            defaults.set(max(0, newValue), forKey: "flexgram.virtualStars")
+            NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+        }
     }
 
     public static var virtualTon: Double {
         get { max(0, defaults.double(forKey: "flexgram.virtualTon")) }
-        set { defaults.set(max(0, newValue), forKey: "flexgram.virtualTon") }
+        set {
+            defaults.set(max(0, newValue), forKey: "flexgram.virtualTon")
+            NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+        }
     }
 
     private static func peerKey(_ field: String, accountId: Int64, peerId: Int64) -> String {
@@ -109,6 +121,11 @@ public enum FlexGramOverrides {
         value.append(gift)
         if let data = try? JSONEncoder().encode(value) {
             defaults.set(data, forKey: key)
+            NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
         }
     }
+}
+
+public extension Notification.Name {
+    static let flexGramLocalDataChanged = Notification.Name("FlexGramLocalDataChanged")
 }

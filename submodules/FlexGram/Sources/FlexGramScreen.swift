@@ -36,262 +36,222 @@ public enum FlexGramLocalSettings {
     }
 }
 
-private final class FlexGramChoiceButton: UIButton {
-    var onPress: (() -> Void)?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        self.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc private func pressed() {
-        self.onPress?()
-    }
-}
-
-private enum FlexGramLocalStore {
-    private static let defaults = UserDefaults.standard
-
-    static var stars: Int {
-        get { max(0, defaults.integer(forKey: "flexgram.virtualStars")) }
-        set { defaults.set(max(0, newValue), forKey: "flexgram.virtualStars") }
-    }
-
-    static var ton: Double {
-        get { max(0, defaults.double(forKey: "flexgram.virtualTon")) }
-        set { defaults.set(max(0, newValue), forKey: "flexgram.virtualTon") }
-    }
-
-    static var displayName: String {
-        get { FlexGramLocalSettings.profileDisplayNameOverride ?? "Мой профиль" }
-        set { FlexGramLocalSettings.profileDisplayNameOverride = newValue }
-    }
-
-    static var messageAlias: String {
-        get { FlexGramLocalSettings.outgoingAuthorNameOverride ?? "Имя отправителя" }
-        set { FlexGramLocalSettings.outgoingAuthorNameOverride = newValue }
-    }
-
-    static var gifts: [FlexGramGift] {
-        get {
-            guard let data = defaults.data(forKey: "flexgram.gifts"),
-                  let gifts = try? JSONDecoder().decode([FlexGramGift].self, from: data) else {
-                return []
-            }
-            return gifts
-        }
-        set {
-            guard let data = try? JSONEncoder().encode(newValue) else { return }
-            defaults.set(data, forKey: "flexgram.gifts")
-        }
-    }
-}
-
-/// A client-only playground. Values are persisted in this installation and are never sent to Telegram.
+/// A local-only wallet and entry point for profile editing and gift copies.
 public final class FlexGramScreen: ViewController {
     private final class Node: ViewControllerTracingNode {
-        private let accountId: Int64
-        private let content = UIScrollView()
+        private let presentationData: PresentationData
+        private let scrollView = UIScrollView()
         private let stack = UIStackView()
         private let starsLabel = UILabel()
         private let tonLabel = UILabel()
-        private var nameField = UITextField()
-        private var messageField = UITextField()
-        private let previewLabel = UILabel()
-        private let giftsLabel = UILabel()
-        private var giftKind = "Звезда"
-        private var giftBackground = "Ночной"
-        private var giftPattern = "Искры"
+        private let nameField = UITextField()
+        private let authorField = UITextField()
+        private let profileNote = UILabel()
+        var onEditStars: (() -> Void)?
+        var onEditTon: (() -> Void)?
+        var onOpenMyProfile: (() -> Void)?
 
-        init(accountId: Int64) {
-            self.accountId = accountId
+        init(presentationData: PresentationData) {
+            self.presentationData = presentationData
             super.init()
-            self.backgroundColor = UIColor(rgb: 0x101116)
-            self.content.alwaysBounceVertical = true
-            self.content.keyboardDismissMode = .interactive
+            let colors = presentationData.theme.list
+            self.backgroundColor = colors.plainBackgroundColor
+            self.scrollView.alwaysBounceVertical = true
+            self.scrollView.keyboardDismissMode = .interactive
             self.stack.axis = .vertical
-            self.stack.spacing = 14
+            self.stack.spacing = 18.0
             self.stack.isLayoutMarginsRelativeArrangement = true
-            self.stack.layoutMargins = UIEdgeInsets(top: 20, left: 16, bottom: 28, right: 16)
-            self.starsLabel.textColor = .white
-            self.tonLabel.textColor = .white
-            self.giftsLabel.textColor = UIColor(white: 0.82, alpha: 1)
+            self.stack.layoutMargins = UIEdgeInsets(top: 20.0, left: 16.0, bottom: 32.0, right: 16.0)
 
-            self.addTitle("Флекс", size: 30, weight: .bold)
-            self.addText("Локальная песочница FlexGram. Балансы, профиль и подарки существуют только на этом устройстве.", secondary: true)
-            self.addCard(title: "Виртуальный баланс")
-            self.stack.addArrangedSubview(self.starsLabel)
-            self.stack.addArrangedSubview(self.makeCounterRow(title: "Stars", decrement: #selector(self.decreaseStars), increment: #selector(self.increaseStars)))
-            self.stack.addArrangedSubview(self.tonLabel)
-            self.stack.addArrangedSubview(self.makeCounterRow(title: "TON", decrement: #selector(self.decreaseTon), increment: #selector(self.increaseTon)))
-            self.addText("Виртуальные Stars можно использовать для локальных подарков. TON остаётся только счётчиком.", secondary: true)
+            let titleLabel = UILabel()
+            titleLabel.text = "Флекс"
+            titleLabel.font = .systemFont(ofSize: 30.0, weight: .bold)
+            titleLabel.textColor = colors.itemPrimaryTextColor
+            self.stack.addArrangedSubview(titleLabel)
+            self.addDescription("Локальные настройки профиля, подарков и виртуального баланса. Они видны только в этом приложении.")
 
-            self.addCard(title: "Профиль и сообщения · локальный предпросмотр")
-            self.nameField = self.makeTextField(placeholder: "Локальное имя профиля", value: FlexGramLocalSettings.profileDisplayNameOverride ?? "")
-            self.messageField = self.makeTextField(placeholder: "Локальное имя автора", value: FlexGramLocalSettings.outgoingAuthorNameOverride ?? "")
-            self.stack.addArrangedSubview(self.nameField)
-            self.stack.addArrangedSubview(self.messageField)
-            self.previewLabel.text = "\(FlexGramLocalStore.displayName)\n\(FlexGramLocalStore.messageAlias) · только предпросмотр"
-            self.previewLabel.textColor = .white
-            self.previewLabel.numberOfLines = 0
-            self.stack.addArrangedSubview(self.previewLabel)
+            self.addSectionTitle("ВИРТУАЛЬНЫЙ БАЛАНС")
+            let walletCard = self.makeGroup()
+            let starsRow = self.makeBalanceRow(symbol: "star.fill", valueLabel: self.starsLabel, decrement: #selector(self.decreaseStars), increment: #selector(self.increaseStars), edit: #selector(self.editStars))
+            walletCard.addArrangedSubview(starsRow)
+            walletCard.addArrangedSubview(self.separator())
+            let tonRow = self.makeBalanceRow(symbol: "diamond.fill", valueLabel: self.tonLabel, decrement: #selector(self.decreaseTon), increment: #selector(self.increaseTon), edit: #selector(self.editTon))
+            walletCard.addArrangedSubview(tonRow)
+            self.stack.addArrangedSubview(walletCard)
+            self.addDescription("Нажмите на сумму, чтобы задать любое значение. При локальном подарке списываются 100 виртуальных Stars. Настоящий баланс Telegram не меняется.")
+
+            self.addSectionTitle("ЛОКАЛЬНЫЙ ПРОФИЛЬ")
+            let profileCard = self.makeGroup()
+            self.configureField(self.nameField, placeholder: "Имя в моём профиле", text: FlexGramLocalSettings.profileDisplayNameOverride)
+            self.configureField(self.authorField, placeholder: "Подпись автора в сообщениях", text: FlexGramLocalSettings.outgoingAuthorNameOverride)
             self.nameField.addTarget(self, action: #selector(self.profileChanged), for: .editingChanged)
-            self.messageField.addTarget(self, action: #selector(self.messageChanged), for: .editingChanged)
+            self.authorField.addTarget(self, action: #selector(self.authorChanged), for: .editingChanged)
+            profileCard.addArrangedSubview(self.nameField)
+            profileCard.addArrangedSubview(self.authorField)
+            self.profileNote.text = "Изменения профиля и сообщений появятся после повторного открытия соответствующего экрана."
+            self.profileNote.font = .systemFont(ofSize: 13.0)
+            self.profileNote.textColor = colors.itemSecondaryTextColor
+            self.profileNote.numberOfLines = 0
+            profileCard.addArrangedSubview(self.profileNote)
+            profileCard.addArrangedSubview(self.makePrimaryButton("Открыть мои локальные подарки", action: #selector(self.openMyProfile)))
+            self.stack.addArrangedSubview(profileCard)
 
-            self.addCard(title: "Конструктор подарка")
-            self.addChoiceRow("Предмет", values: ["Звезда", "Роза", "Сердце"], selected: { [weak self] in self?.giftKind ?? "Звезда" }, update: { [weak self] in self?.giftKind = $0 })
-            self.addChoiceRow("Фон", values: ["Ночной", "Мятный", "Персиковый"], selected: { [weak self] in self?.giftBackground ?? "Ночной" }, update: { [weak self] in self?.giftBackground = $0 })
-            self.addChoiceRow("Узор", values: ["Искры", "Волны", "Точки"], selected: { [weak self] in self?.giftPattern ?? "Искры" }, update: { [weak self] in self?.giftPattern = $0 })
-            self.stack.addArrangedSubview(self.giftsLabel)
-            self.stack.addArrangedSubview(self.makeButton("Сохранить подарок локально", action: #selector(self.saveGift)))
+            self.addSectionTitle("КАК ЭТО РАБОТАЕТ")
+            let infoCard = self.makeGroup()
+            let info = UILabel()
+            info.text = "Выберите изображение из каталога Telegram в локальном профиле. Подарок появится только в вашем FlexGram и не будет доставлен другому человеку. Реальных платежей нет."
+            info.font = .systemFont(ofSize: 14.0)
+            info.textColor = colors.itemSecondaryTextColor
+            info.numberOfLines = 0
+            infoCard.addArrangedSubview(info)
+            self.stack.addArrangedSubview(infoCard)
             self.refreshValues()
-            self.refreshGifts()
         }
 
         override func didLoad() {
             super.didLoad()
-            self.view.addSubview(self.content)
-            self.content.addSubview(self.stack)
+            self.view.addSubview(self.scrollView)
+            self.stack.translatesAutoresizingMaskIntoConstraints = false
+            self.scrollView.addSubview(self.stack)
+            NSLayoutConstraint.activate([
+                self.stack.leadingAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.leadingAnchor),
+                self.stack.trailingAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.trailingAnchor),
+                self.stack.topAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.topAnchor),
+                self.stack.bottomAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.bottomAnchor),
+                self.stack.widthAnchor.constraint(equalTo: self.scrollView.frameLayoutGuide.widthAnchor)
+            ])
         }
 
         func updateLayout(size: CGSize, navigationHeight: CGFloat) {
-            self.content.frame = CGRect(x: 0, y: navigationHeight, width: size.width, height: max(0, size.height - navigationHeight))
-            let width = self.content.bounds.width
-            let fitting = self.stack.systemLayoutSizeFitting(CGSize(width: width, height: UIView.layoutFittingCompressedSize.height), withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
-            self.stack.frame = CGRect(origin: .zero, size: CGSize(width: width, height: max(fitting.height, self.content.bounds.height + 1)))
-            self.content.contentSize = self.stack.bounds.size
+            self.scrollView.frame = CGRect(x: 0.0, y: navigationHeight, width: size.width, height: max(0.0, size.height - navigationHeight))
         }
 
-        private func addTitle(_ text: String, size: CGFloat, weight: UIFont.Weight) {
-            let label = UILabel()
-            label.text = text
-            label.textColor = .white
-            label.font = .systemFont(ofSize: size, weight: weight)
-            self.stack.addArrangedSubview(label)
+        func refreshValues() {
+            self.starsLabel.text = "\(FlexGramOverrides.virtualStars) Stars"
+            self.tonLabel.text = "\(String(format: "%.2f", FlexGramOverrides.virtualTon)) TON"
         }
 
-        private func addText(_ text: String, secondary: Bool) {
+        private func makeGroup() -> UIStackView {
+            let group = UIStackView()
+            group.axis = .vertical
+            group.spacing = 12.0
+            group.isLayoutMarginsRelativeArrangement = true
+            group.layoutMargins = UIEdgeInsets(top: 16.0, left: 16.0, bottom: 16.0, right: 16.0)
+            group.backgroundColor = self.presentationData.theme.list.itemBlocksBackgroundColor
+            group.layer.cornerRadius = 14.0
+            return group
+        }
+
+        private func addSectionTitle(_ text: String) {
             let label = UILabel()
             label.text = text
+            label.font = .systemFont(ofSize: 13.0, weight: .semibold)
+            label.textColor = self.presentationData.theme.list.itemSecondaryTextColor
             label.numberOfLines = 0
-            label.textColor = secondary ? UIColor(white: 0.62, alpha: 1) : .white
-            label.font = .systemFont(ofSize: secondary ? 14 : 16, weight: .regular)
             self.stack.addArrangedSubview(label)
         }
 
-        private func addCard(title: String) {
+        private func addDescription(_ text: String) {
             let label = UILabel()
-            label.text = title
-            label.textColor = UIColor(rgb: 0x77D6B3)
-            label.font = .systemFont(ofSize: 17, weight: .semibold)
-            label.backgroundColor = UIColor(rgb: 0x1B1D25)
-            label.layer.cornerRadius = 12
-            label.layer.masksToBounds = true
-            label.layoutMargins = UIEdgeInsets(top: 12, left: 12, bottom: 8, right: 12)
+            label.text = text
+            label.font = .systemFont(ofSize: 14.0)
+            label.textColor = self.presentationData.theme.list.itemSecondaryTextColor
+            label.numberOfLines = 0
             self.stack.addArrangedSubview(label)
         }
 
-        private func makeCounterRow(title: String, decrement: Selector, increment: Selector) -> UIView {
+        private func separator() -> UIView {
+            let line = UIView()
+            line.backgroundColor = self.presentationData.theme.list.itemBlocksSeparatorColor
+            line.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
+            return line
+        }
+
+        private func makeBalanceRow(symbol: String, valueLabel: UILabel, decrement: Selector, increment: Selector, edit: Selector) -> UIView {
             let row = UIStackView()
             row.axis = .horizontal
-            row.spacing = 8
+            row.spacing = 8.0
             row.alignment = .center
-            let label = UILabel()
-            label.text = title
-            label.textColor = .white
-            row.addArrangedSubview(label)
-            row.addArrangedSubview(UIView())
-            row.addArrangedSubview(self.makeButton("−", action: decrement))
-            row.addArrangedSubview(self.makeButton("+", action: increment))
+            let icon = UIImageView(image: UIImage(systemName: symbol))
+            icon.tintColor = self.presentationData.theme.list.itemAccentColor
+            icon.contentMode = .scaleAspectFit
+            icon.widthAnchor.constraint(equalToConstant: 28.0).isActive = true
+            icon.heightAnchor.constraint(equalToConstant: 28.0).isActive = true
+            row.addArrangedSubview(icon)
+            valueLabel.font = .systemFont(ofSize: 20.0, weight: .semibold)
+            valueLabel.textColor = self.presentationData.theme.list.itemPrimaryTextColor
+            valueLabel.adjustsFontSizeToFitWidth = true
+            valueLabel.minimumScaleFactor = 0.75
+            let amountButton = UIButton(type: .system)
+            amountButton.contentHorizontalAlignment = .left
+            amountButton.addSubview(valueLabel)
+            valueLabel.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                valueLabel.leadingAnchor.constraint(equalTo: amountButton.leadingAnchor),
+                valueLabel.trailingAnchor.constraint(equalTo: amountButton.trailingAnchor),
+                valueLabel.topAnchor.constraint(equalTo: amountButton.topAnchor),
+                valueLabel.bottomAnchor.constraint(equalTo: amountButton.bottomAnchor)
+            ])
+            amountButton.addTarget(self, action: edit, for: .touchUpInside)
+            amountButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44.0).isActive = true
+            row.addArrangedSubview(amountButton)
+            row.addArrangedSubview(self.makeStepButton("−", action: decrement))
+            row.addArrangedSubview(self.makeStepButton("+", action: increment))
             return row
         }
 
-        private func makeButton(_ title: String, action: Selector) -> UIButton {
-            let button = FlexGramChoiceButton(type: .system)
-            var configuration = UIButton.Configuration.filled()
-            configuration.title = title
-            configuration.baseForegroundColor = UIColor(rgb: 0x101116)
-            configuration.baseBackgroundColor = UIColor(rgb: 0x77D6B3)
-            configuration.cornerStyle = .medium
-            configuration.contentInsets = NSDirectionalEdgeInsets(top: 9, leading: 14, bottom: 9, trailing: 14)
-            button.configuration = configuration
+        private func makeStepButton(_ title: String, action: Selector) -> UIButton {
+            let button = UIButton(type: .system)
+            button.setTitle(title, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 23.0, weight: .medium)
+            button.setTitleColor(self.presentationData.theme.list.itemAccentColor, for: .normal)
+            button.backgroundColor = self.presentationData.theme.list.plainBackgroundColor
+            button.layer.cornerRadius = 10.0
+            button.widthAnchor.constraint(equalToConstant: 44.0).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 44.0).isActive = true
             button.addTarget(self, action: action, for: .touchUpInside)
             return button
         }
 
-        private func makeTextField(placeholder: String, value: String) -> UITextField {
-            let field = UITextField()
-            field.text = value
-            field.placeholder = placeholder
-            field.textColor = .white
-            field.tintColor = UIColor(rgb: 0x77D6B3)
-            field.backgroundColor = UIColor(rgb: 0x1B1D25)
-            field.layer.cornerRadius = 10
-            field.setLeftPadding(12)
-            field.heightAnchor.constraint(equalToConstant: 44).isActive = true
-            return field
-        }
-
-        private func addChoiceRow(_ title: String, values: [String], selected: @escaping () -> String, update: @escaping (String) -> Void) {
-            let button = FlexGramChoiceButton(type: .system)
-            button.contentHorizontalAlignment = .left
-            button.titleLabel?.numberOfLines = 0
+        private func makePrimaryButton(_ title: String, action: Selector) -> UIButton {
+            let button = UIButton(type: .system)
             var configuration = UIButton.Configuration.filled()
+            configuration.title = title
             configuration.baseForegroundColor = .white
-            configuration.baseBackgroundColor = UIColor(rgb: 0x1B1D25)
+            configuration.baseBackgroundColor = self.presentationData.theme.list.itemAccentColor
             configuration.cornerStyle = .medium
-            configuration.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12)
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 11.0, leading: 12.0, bottom: 11.0, trailing: 12.0)
             button.configuration = configuration
-            func updateTitle() { button.configuration?.title = "\(title): \(selected())  ·  Нажмите, чтобы сменить" }
-            updateTitle()
-            button.onPress = {
-                let currentIndex = values.firstIndex(of: selected()) ?? 0
-                update(values[(currentIndex + 1) % values.count])
-                updateTitle()
-            }
-            self.stack.addArrangedSubview(button)
+            button.titleLabel?.numberOfLines = 0
+            button.addTarget(self, action: action, for: .touchUpInside)
+            return button
         }
 
-        private func refreshValues() {
-            self.starsLabel.text = "⭐  \(FlexGramLocalStore.stars)  ·  виртуально"
-            self.tonLabel.text = "◆  \(String(format: "%.2f", FlexGramLocalStore.ton))  ·  виртуально"
+        private func configureField(_ field: UITextField, placeholder: String, text: String?) {
+            field.text = text
+            field.placeholder = placeholder
+            field.textColor = self.presentationData.theme.list.itemPrimaryTextColor
+            field.tintColor = self.presentationData.theme.list.itemAccentColor
+            field.backgroundColor = self.presentationData.theme.list.plainBackgroundColor
+            field.layer.cornerRadius = 10.0
+            field.leftView = UIView(frame: CGRect(x: 0.0, y: 0.0, width: 12.0, height: 1.0))
+            field.leftViewMode = .always
+            field.heightAnchor.constraint(equalToConstant: 46.0).isActive = true
         }
 
-        private func refreshGifts() {
-            let descriptions = FlexGramLocalStore.gifts.map { "\($0.kind) · \($0.background) · \($0.pattern)" }
-            self.giftsLabel.text = descriptions.isEmpty ? "Пока нет сохранённых подарков" : "Мои подарки:\n" + descriptions.joined(separator: "\n")
-        }
-
-        @objc private func increaseStars() { FlexGramLocalStore.stars += 100; self.refreshValues() }
-        @objc private func decreaseStars() { FlexGramLocalStore.stars = max(0, FlexGramLocalStore.stars - 100); self.refreshValues() }
-        @objc private func increaseTon() { FlexGramLocalStore.ton += 1; self.refreshValues() }
-        @objc private func decreaseTon() { FlexGramLocalStore.ton = max(0, FlexGramLocalStore.ton - 1); self.refreshValues() }
-        @objc private func profileChanged() {
-            FlexGramLocalStore.displayName = self.nameField.text ?? ""
-            self.updatePreview()
-        }
-        @objc private func messageChanged() {
-            FlexGramLocalStore.messageAlias = self.messageField.text ?? ""
-            self.updatePreview()
-        }
-        private func updatePreview() {
-            self.previewLabel.text = "\(FlexGramLocalStore.displayName)\n\(FlexGramLocalStore.messageAlias) · только предпросмотр"
-        }
-        @objc private func saveGift() {
-            var gifts = FlexGramLocalStore.gifts
-            gifts.append(FlexGramGift(kind: self.giftKind, background: self.giftBackground, pattern: self.giftPattern))
-            FlexGramLocalStore.gifts = gifts
-            FlexGramOverrides.addGift(FlexGramGift(kind: self.giftKind, background: self.giftBackground, pattern: self.giftPattern), accountId: self.accountId, peerId: self.accountId)
-            self.refreshGifts()
-        }
+        @objc private func increaseStars() { FlexGramOverrides.virtualStars += 100; self.refreshValues() }
+        @objc private func decreaseStars() { FlexGramOverrides.virtualStars = max(0, FlexGramOverrides.virtualStars - 100); self.refreshValues() }
+        @objc private func increaseTon() { FlexGramOverrides.virtualTon += 1.0; self.refreshValues() }
+        @objc private func decreaseTon() { FlexGramOverrides.virtualTon = max(0.0, FlexGramOverrides.virtualTon - 1.0); self.refreshValues() }
+        @objc private func editStars() { self.onEditStars?() }
+        @objc private func editTon() { self.onEditTon?() }
+        @objc private func openMyProfile() { self.onOpenMyProfile?() }
+        @objc private func profileChanged() { FlexGramLocalSettings.profileDisplayNameOverride = self.nameField.text }
+        @objc private func authorChanged() { FlexGramLocalSettings.outgoingAuthorNameOverride = self.authorField.text }
     }
 
     private let context: AccountContext
-    private var presentationData: PresentationData
+    private let presentationData: PresentationData
 
     public init(context: AccountContext) {
         self.context = context
@@ -300,27 +260,48 @@ public final class FlexGramScreen: ViewController {
         self.title = "FlexGram"
     }
 
-    required init(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
+    required init(coder aDecoder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     private var node: Node { self.displayNode as! Node }
 
     override public func loadDisplayNode() {
-        self.displayNode = Node(accountId: self.context.account.peerId.toInt64())
+        let node = Node(presentationData: self.presentationData)
+        node.onEditStars = { [weak self] in self?.editBalance(isStars: true) }
+        node.onEditTon = { [weak self] in self?.editBalance(isStars: false) }
+        node.onOpenMyProfile = { [weak self] in
+            guard let self else { return }
+            self.push(FlexGramPeerScreen(context: self.context, peerId: self.context.account.peerId.toInt64(), peerTitle: "Мой профиль"))
+        }
+        self.displayNode = node
         super.displayNodeDidLoad()
+    }
+
+    override public func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if self.isNodeLoaded { self.node.refreshValues() }
     }
 
     override public func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
         self.node.updateLayout(size: layout.size, navigationHeight: self.navigationLayout(layout: layout).navigationFrame.maxY)
     }
-}
 
-private extension UITextField {
-    func setLeftPadding(_ amount: CGFloat) {
-        let spacer = UIView(frame: CGRect(x: 0, y: 0, width: amount, height: 1))
-        self.leftView = spacer
-        self.leftViewMode = .always
+    private func editBalance(isStars: Bool) {
+        let alert = UIAlertController(title: isStars ? "Виртуальные Stars" : "Виртуальные TON", message: "Значение хранится только на этом устройстве.", preferredStyle: .alert)
+        alert.addTextField { field in
+            field.keyboardType = isStars ? .numberPad : .decimalPad
+            field.text = isStars ? String(FlexGramOverrides.virtualStars) : String(format: "%.2f", FlexGramOverrides.virtualTon)
+        }
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Сохранить", style: .default, handler: { [weak self, weak alert] _ in
+            guard let text = alert?.textFields?.first?.text else { return }
+            if isStars {
+                if let value = Int(text), value >= 0 { FlexGramOverrides.virtualStars = value }
+            } else {
+                let normalized = text.replacingOccurrences(of: ",", with: ".")
+                if let value = Double(normalized), value.isFinite, value >= 0.0 { FlexGramOverrides.virtualTon = value }
+            }
+            self?.node.refreshValues()
+        }))
+        self.present(alert, animated: true)
     }
 }

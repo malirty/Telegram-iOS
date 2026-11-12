@@ -105,8 +105,7 @@ func infoItems(
             controller.push(FlexGramPeerScreen(context: context, peerId: user.id.toInt64(), peerTitle: EnginePeer(user).displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)))
         }))
         if !localGifts.isEmpty {
-            let giftText = localGifts.suffix(5).map { "🎁 \($0.kind) · \($0.background) · \($0.pattern)" }.joined(separator: "\n")
-            items[.peerInfo]!.append(PeerInfoScreenInfoItem(id: AnyHashable("flexgram_gifts"), title: "Подарки Флекс · только у вас", text: .plain(giftText), linkAction: nil))
+            items[.peerInfo]!.append(PeerInfoScreenFlexGramGiftsItem(id: AnyHashable("flexgram_gifts"), gifts: localGifts))
         }
         let ItemCallList = 1000
         let ItemPersonalChannelHeader = 2000

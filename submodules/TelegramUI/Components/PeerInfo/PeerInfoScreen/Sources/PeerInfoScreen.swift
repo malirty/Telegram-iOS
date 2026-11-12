@@ -7304,6 +7304,9 @@ public final class PeerInfoScreenImpl: ViewController, PeerInfoScreen, KeyShortc
         
         self.controllerNode.refreshHasPersonalChannelsIfNeeded()
         self.controllerNode.initialExpandPanes = false
+        if let validLayout = self.validLayout {
+            self.controllerNode.containerLayoutUpdated(layout: validLayout.layout, navigationHeight: validLayout.navigationHeight, transition: .immediate)
+        }
         
         if self.isSettings {
             preheatQrCode()
