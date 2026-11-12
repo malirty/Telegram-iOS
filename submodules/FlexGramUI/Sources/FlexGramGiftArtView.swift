@@ -4,6 +4,7 @@ import GiftItemComponent
 import TelegramCore
 import TelegramPresentationData
 import AccountContext
+import FlexGram
 
 /// Uses Telegram's gift renderer and catalogue media without creating a server-side gift.
 public final class FlexGramGiftArtView: UIView {

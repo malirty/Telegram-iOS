@@ -6,6 +6,7 @@ import TelegramCore
 import TelegramPresentationData
 import AccountContext
 import SwiftSignalKit
+import FlexGram
 
 /// Edits only this installation's presentation of a peer and its local gift collection.
 public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {

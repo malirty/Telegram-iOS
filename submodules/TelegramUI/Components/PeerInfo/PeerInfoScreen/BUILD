@@ -11,6 +11,7 @@ swift_library(
     ],
     deps = [
         "//submodules/FlexGram:FlexGram",
+        "//submodules/FlexGramUI:FlexGramUI",
         "//submodules/UrlWhitelist",
         "//submodules/TelegramUI/Components/NavigationBarNode",
         "//submodules/TelegramUI/Components/NavigationBarComponent",

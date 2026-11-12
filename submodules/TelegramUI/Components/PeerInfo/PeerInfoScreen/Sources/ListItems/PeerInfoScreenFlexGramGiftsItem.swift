@@ -5,6 +5,7 @@ import Display
 import AccountContext
 import TelegramPresentationData
 import FlexGram
+import FlexGramUI
 
 /// A visual preview of gifts stored only in this FlexGram installation.
 final class PeerInfoScreenFlexGramGiftsItem: PeerInfoScreenItem {

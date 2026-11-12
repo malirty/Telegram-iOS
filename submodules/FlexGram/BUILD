@@ -11,9 +11,6 @@ swift_library(
         "//submodules/TelegramCore:TelegramCore",
         "//submodules/TelegramPresentationData:TelegramPresentationData",
         "//submodules/AccountContext:AccountContext",
-        "//submodules/ComponentFlow:ComponentFlow",
-        "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
-        "//submodules/TelegramUI/Components/Gifts/GiftItemComponent:GiftItemComponent",
     ],
     visibility = ["//visibility:public"],
 )

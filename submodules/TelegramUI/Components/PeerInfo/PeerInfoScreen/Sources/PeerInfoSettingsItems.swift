@@ -14,6 +14,7 @@ import TelegramStringFormatting
 import PeerNameColorItem
 import WalletContext
 import FlexGram
+import FlexGramUI
 
 enum SettingsSection: Int, CaseIterable {
     case edit
