@@ -1,4 +1,5 @@
 import UIKit
+import FlexGram
 import SwiftSignalKit
 import Display
 import TelegramCore
@@ -243,6 +244,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     private var statusBarHost: ApplicationStatusBarHost?
     private var dataImportSplash: LegacyDataImportSplash?
     private var memoryUsageOverlayView: UILabel?
+    private var flexGramGiftTimer: Timer?
     
     private let crashReportPromptDisposable = MetaDisposable()
     private var buildConfig: BuildConfig?
@@ -2043,6 +2045,8 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     }
 
     func handleWillResignActive() {
+        self.flexGramGiftTimer?.invalidate()
+        self.flexGramGiftTimer = nil
         self.isActiveValue = false
         self.isActivePromise.set(false)
         self.clearNotificationsManager?.commitNow()
@@ -2149,6 +2153,13 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     }
 
     func handleDidBecomeActive() {
+        _ = FlexGramOverrides.deliverDueGifts()
+        self.flexGramGiftTimer?.invalidate()
+        let flexGramGiftTimer = Timer(timeInterval: 1.0, repeats: true) { _ in
+            _ = FlexGramOverrides.deliverDueGifts()
+        }
+        RunLoop.main.add(flexGramGiftTimer, forMode: .common)
+        self.flexGramGiftTimer = flexGramGiftTimer
         self.isInForegroundValue = true
         self.isInForegroundPromise.set(true)
         self.isActiveValue = true
