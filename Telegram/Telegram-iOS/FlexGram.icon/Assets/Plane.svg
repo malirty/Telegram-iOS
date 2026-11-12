@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024px" height="1024px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>FlexGram</title>
+    <g id="FlexGram" stroke="none" fill="none" fill-rule="nonzero">
+        <path d="M362 286 C362 273 373 262 386 262 H675 C688 262 699 273 699 286 V346 C699 359 688 370 675 370 H470 V463 H626 C639 463 650 474 650 487 V547 C650 560 639 571 626 571 H470 V738 C470 751 459 762 446 762 H386 C373 762 362 751 362 738 Z" fill="#FFFFFF"/>
+        <path d="M681 600 L693 636 L729 648 L693 660 L681 696 L669 660 L633 648 L669 636 Z" fill="#FFFFFF"/>
+    </g>
+</svg>

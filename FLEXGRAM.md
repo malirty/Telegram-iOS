@@ -2,7 +2,7 @@
 
 FlexGram добавлен в официальный репозиторий Telegram iOS как отдельный Bazel-модуль //submodules/FlexGram:FlexGram и открывается из **Настройки → Флекс · FlexGram**.
 
-Основа — официальный репозиторий TelegramMessenger/Telegram-iOS, commit 24638bc69bd083981b178dd1e7f921eebbf7fc46.
+Основа — официальный репозиторий TelegramMessenger/Telegram-iOS, commit 24638bc69bd083981b178dd1e7f921eebbf7fc46. Для приложения задано имя FlexGram и отдельная иконка с буквой F.
 
 В локальном прототипе есть:
 
