@@ -53,12 +53,6 @@ private final class FlexGramChoiceButton: UIButton {
     }
 }
 
-private struct FlexGramGift: Codable {
-    var kind: String
-    var background: String
-    var pattern: String
-}
-
 private enum FlexGramLocalStore {
     private static let defaults = UserDefaults.standard
 
@@ -100,6 +94,7 @@ private enum FlexGramLocalStore {
 /// A client-only playground. Values are persisted in this installation and are never sent to Telegram.
 public final class FlexGramScreen: ViewController {
     private final class Node: ViewControllerTracingNode {
+        private let accountId: Int64
         private let content = UIScrollView()
         private let stack = UIStackView()
         private let starsLabel = UILabel()
@@ -112,7 +107,8 @@ public final class FlexGramScreen: ViewController {
         private var giftBackground = "Ночной"
         private var giftPattern = "Искры"
 
-        override init() {
+        init(accountId: Int64) {
+            self.accountId = accountId
             super.init()
             self.backgroundColor = UIColor(rgb: 0x101116)
             self.content.alwaysBounceVertical = true
@@ -216,11 +212,13 @@ public final class FlexGramScreen: ViewController {
 
         private func makeButton(_ title: String, action: Selector) -> UIButton {
             let button = FlexGramChoiceButton(type: .system)
-            button.setTitle(title, for: .normal)
-            button.setTitleColor(UIColor(rgb: 0x101116), for: .normal)
-            button.backgroundColor = UIColor(rgb: 0x77D6B3)
-            button.layer.cornerRadius = 10
-            button.contentEdgeInsets = UIEdgeInsets(top: 9, left: 14, bottom: 9, right: 14)
+            var configuration = UIButton.Configuration.filled()
+            configuration.title = title
+            configuration.baseForegroundColor = UIColor(rgb: 0x101116)
+            configuration.baseBackgroundColor = UIColor(rgb: 0x77D6B3)
+            configuration.cornerStyle = .medium
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 9, leading: 14, bottom: 9, trailing: 14)
+            button.configuration = configuration
             button.addTarget(self, action: action, for: .touchUpInside)
             return button
         }
@@ -242,12 +240,14 @@ public final class FlexGramScreen: ViewController {
             let button = FlexGramChoiceButton(type: .system)
             button.contentHorizontalAlignment = .left
             button.titleLabel?.numberOfLines = 0
-            button.setTitleColor(.white, for: .normal)
-            func updateTitle() { button.setTitle("\(title): \(selected())  ·  Нажмите, чтобы сменить", for: .normal) }
+            var configuration = UIButton.Configuration.filled()
+            configuration.baseForegroundColor = .white
+            configuration.baseBackgroundColor = UIColor(rgb: 0x1B1D25)
+            configuration.cornerStyle = .medium
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12)
+            button.configuration = configuration
+            func updateTitle() { button.configuration?.title = "\(title): \(selected())  ·  Нажмите, чтобы сменить" }
             updateTitle()
-            button.backgroundColor = UIColor(rgb: 0x1B1D25)
-            button.layer.cornerRadius = 10
-            button.contentEdgeInsets = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
             button.onPress = {
                 let currentIndex = values.firstIndex(of: selected()) ?? 0
                 update(values[(currentIndex + 1) % values.count])
@@ -285,6 +285,7 @@ public final class FlexGramScreen: ViewController {
             var gifts = FlexGramLocalStore.gifts
             gifts.append(FlexGramGift(kind: self.giftKind, background: self.giftBackground, pattern: self.giftPattern))
             FlexGramLocalStore.gifts = gifts
+            FlexGramOverrides.addGift(FlexGramGift(kind: self.giftKind, background: self.giftBackground, pattern: self.giftPattern), accountId: self.accountId, peerId: self.accountId)
             self.refreshGifts()
         }
     }
@@ -299,14 +300,14 @@ public final class FlexGramScreen: ViewController {
         self.title = "FlexGram"
     }
 
-    required init?(coder aDecoder: NSCoder) {
+    required init(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
     private var node: Node { self.displayNode as! Node }
 
     override public func loadDisplayNode() {
-        self.displayNode = Node()
+        self.displayNode = Node(accountId: self.context.account.peerId.toInt64())
         super.displayNodeDidLoad()
     }
 

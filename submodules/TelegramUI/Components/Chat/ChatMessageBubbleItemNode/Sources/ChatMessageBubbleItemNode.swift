@@ -9,6 +9,7 @@ import TelegramPresentationData
 import TelegramUIPreferences
 import TextFormat
 import AccountContext
+import FlexGram
 import TemporaryCachedPeerDataManager
 import LocalizedPeerData
 import ContextUI
@@ -2756,7 +2757,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
         }
         if initialDisplayHeader && displayAuthorInfo {
             if let peer = firstMessage.peers[firstMessage.id.peerId] as? TelegramChannel, case .broadcast = peer.info, item.content.firstMessage.adAttribute == nil, !overrideEffectiveAuthor {
-                authorNameString = EnginePeer(peer).displayTitle(strings: item.presentationData.strings, displayOrder: item.presentationData.nameDisplayOrder)
+                authorNameString = FlexGramOverrides.name(accountId: item.context.account.peerId.toInt64(), peerId: peer.id.toInt64()) ?? EnginePeer(peer).displayTitle(strings: item.presentationData.strings, displayOrder: item.presentationData.nameDisplayOrder)
                 
                 let peer = (peer as Peer)
                 let nameColors: PeerNameColors.Colors?
@@ -2770,7 +2771,7 @@ public class ChatMessageBubbleItemNode: ChatMessageItemView, ChatMessagePreviewI
                 }
                 authorNameColor = nameColors?.main
             } else if let effectiveAuthor = effectiveAuthor {
-                authorNameString = EnginePeer(effectiveAuthor).displayTitle(strings: item.presentationData.strings, displayOrder: item.presentationData.nameDisplayOrder)
+                authorNameString = FlexGramOverrides.name(accountId: item.context.account.peerId.toInt64(), peerId: effectiveAuthor.id.toInt64()) ?? EnginePeer(effectiveAuthor).displayTitle(strings: item.presentationData.strings, displayOrder: item.presentationData.nameDisplayOrder)
                 // Not when the author is the chat itself (an anonymous admin), which the chat header already badges, as
                 // a broadcast channel's own posts above.
                 if effectiveAuthor.id != item.message.id.peerId {

@@ -1296,6 +1296,9 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             if (self.isSettings || self.isMyProfile), peer.id == self.context.account.peerId, let localName = FlexGramLocalSettings.profileDisplayNameOverride {
                 title = localName
             }
+            if let localName = FlexGramOverrides.name(accountId: self.context.account.peerId.toInt64(), peerId: peer.id.toInt64()) {
+                title = localName
+            }
             title = title.replacingOccurrences(of: "\u{1160}", with: "").replacingOccurrences(of: "\u{3164}", with: "")
             if title.replacingOccurrences(of: "\u{fe0e}", with: "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 title = "" //"\u{00A0}"

@@ -14,6 +14,7 @@ import Accelerate
 import ComponentFlow
 import AvatarStoryIndicatorComponent
 import DirectMediaImageCache
+import FlexGram
 
 private let deletedIcon = UIImage(bundleImageName: "Avatar/DeletedIcon")?.precomposed()
 private let phoneIcon = generateTintedImage(image: UIImage(bundleImageName: "Avatar/PhoneIcon"), color: .white)
@@ -1196,6 +1197,7 @@ public final class AvatarNode: ASDisplayNode {
     }
     
     public let contentNode: ContentNode
+    private let flexGramAvatarNode = ASImageNode()
     private var storyIndicator: ComponentView<Empty>?
     public private(set) var storyPresentationParams: StoryPresentationParams?
     
@@ -1278,6 +1280,10 @@ public final class AvatarNode: ASDisplayNode {
         }
         
         self.addSubnode(self.contentNode)
+        self.flexGramAvatarNode.contentMode = .scaleAspectFill
+        self.flexGramAvatarNode.clipsToBounds = true
+        self.flexGramAvatarNode.isUserInteractionEnabled = false
+        self.contentNode.addSubnode(self.flexGramAvatarNode)
     }
     
     deinit {
@@ -1306,6 +1312,7 @@ public final class AvatarNode: ASDisplayNode {
         self.contentNode.bounds = CGRect(origin: CGPoint(), size: size)
         
         self.contentNode.updateSize(size: size)
+        self.flexGramAvatarNode.frame = CGRect(origin: .zero, size: size)
         
         self.updateStoryIndicator(transition: .immediate)
     }
@@ -1352,6 +1359,7 @@ public final class AvatarNode: ASDisplayNode {
             displayDimensions: displayDimensions,
             storeUnrounded: storeUnrounded
         )
+        self.updateFlexGramAvatar(accountId: accountPeerId.toInt64(), peerId: peer?.id.toInt64(), overrideImage: overrideImage, clipStyle: clipStyle)
     }
     
     public func setPeerV2(
@@ -1378,6 +1386,7 @@ public final class AvatarNode: ASDisplayNode {
             displayDimensions: displayDimensions,
             storeUnrounded: storeUnrounded
         )
+        self.updateFlexGramAvatar(accountId: genericContext.account.peerId.toInt64(), peerId: peer?.id.toInt64(), overrideImage: overrideImage, clipStyle: clipStyle)
     }
     
     public func setPeer(
@@ -1408,10 +1417,30 @@ public final class AvatarNode: ASDisplayNode {
             storeUnrounded: storeUnrounded,
             cutoutRect: cutoutRect
         )
+        self.updateFlexGramAvatar(accountId: context.account.peerId.toInt64(), peerId: peer?.id.toInt64(), overrideImage: overrideImage, clipStyle: clipStyle)
+    }
+
+    private func updateFlexGramAvatar(accountId: Int64, peerId: Int64?, overrideImage: AvatarNodeImageOverride?, clipStyle: AvatarNodeClipStyle) {
+        if overrideImage == nil, let peerId {
+            self.flexGramAvatarNode.image = FlexGramOverrides.avatar(accountId: accountId, peerId: peerId)
+        } else {
+            self.flexGramAvatarNode.image = nil
+        }
+        self.flexGramAvatarNode.isHidden = self.flexGramAvatarNode.image == nil
+        switch clipStyle {
+        case .none:
+            self.flexGramAvatarNode.cornerRadius = 0
+        case .roundedRect:
+            self.flexGramAvatarNode.cornerRadius = self.flexGramAvatarNode.bounds.width * 0.22
+        case .round, .bubble:
+            self.flexGramAvatarNode.cornerRadius = self.flexGramAvatarNode.bounds.width * 0.5
+        }
     }
     
     public func setCustomLetters(_ letters: [String], explicitColor: AvatarNodeColorOverride? = nil, icon: AvatarNodeExplicitIcon? = nil) {
         self.contentNode.setCustomLetters(letters, explicitColor: explicitColor, icon: icon)
+        self.flexGramAvatarNode.image = nil
+        self.flexGramAvatarNode.isHidden = true
     }
     
     public func setStoryStats(storyStats: StoryStats?, presentationParams: StoryPresentationParams, transition: ComponentTransition) {

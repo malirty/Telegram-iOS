@@ -16,6 +16,7 @@ import WebUI
 import AvatarNode
 import PeerNameColorItem
 import BoostLevelIconComponent
+import FlexGram
 
 private let enabledPublicBioEntities: EnabledEntityTypes = [.allUrl, .mention, .hashtag]
 private let enabledPrivateBioEntities: EnabledEntityTypes = [.internalUrl, .mention, .hashtag]
@@ -98,6 +99,15 @@ func infoItems(
     }
     
     if case let .user(user) = data.peer {
+        let localGifts = FlexGramOverrides.gifts(accountId: context.account.peerId.toInt64(), peerId: user.id.toInt64())
+        items[.peerInfo]!.append(PeerInfoScreenDisclosureItem(id: AnyHashable("flexgram_peer"), label: .text(localGifts.isEmpty ? "" : "\(localGifts.count) 🎁"), text: "Флекс · локальный профиль и подарки", icon: nil, action: {
+            guard let controller = interaction.getController() else { return }
+            controller.push(FlexGramPeerScreen(context: context, peerId: user.id.toInt64(), peerTitle: EnginePeer(user).displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)))
+        }))
+        if !localGifts.isEmpty {
+            let giftText = localGifts.suffix(5).map { "🎁 \($0.kind) · \($0.background) · \($0.pattern)" }.joined(separator: "\n")
+            items[.peerInfo]!.append(PeerInfoScreenInfoItem(id: AnyHashable("flexgram_gifts"), title: "Подарки Флекс · только у вас", text: .plain(giftText), linkAction: nil))
+        }
         let ItemCallList = 1000
         let ItemPersonalChannelHeader = 2000
         let ItemPersonalChannel = 2001
