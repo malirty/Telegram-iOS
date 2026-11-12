@@ -1,0 +1,118 @@
+name: VisualGram repository unsigned IPA
+
+on:
+  push:
+    branches:
+      - visualgram-repo-build
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 180
+    steps:
+      - name: Check out pinned official Telegram
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Check out VisualGram source patches
+        uses: actions/checkout@v4
+        with:
+          repository: ivanlogvinov197-creator/VisualGram-build
+          ref: 7f5f8d1690c8767a1dba6427b61f1a2328e7e60e
+          path: visualgram-patches
+          persist-credentials: false
+
+      - name: Fetch Telegram submodules
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --local submodule.submodules/TgVoipWebrtc/tgcalls.url https://github.com/TelegramMessenger/tgcalls.git
+          git config --local submodule.submodules/rlottie/rlottie.url https://github.com/TelegramMessenger/rlottie.git
+          git submodule update --init --recursive --jobs 4
+
+      - name: Select Xcode required by Telegram
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_VERSION="$(python3 -c 'import json; print(json.load(open("versions.json"))["xcode"])')"
+          XCODE_PATH="/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer"
+          test -d "$XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: Apply VisualGram patches and validate Swift
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 visualgram-patches/scripts/prepare_native.py .
+          python3 visualgram-patches/scripts/apply_native_features.py .
+          python3 build-system/Make/PostboxImportCheck.py .
+          xcrun swiftc -frontend -parse visualgram-patches/native/*.swift
+          python3 visualgram-patches/scripts/validate_patched_swift.py .
+
+      - name: Prepare private Telegram configuration
+        shell: bash
+        env:
+          FLEXGRAM_CONFIGURATION_JSON: ${{ secrets.FLEXGRAM_CONFIGURATION_JSON }}
+        run: |
+          set -euo pipefail
+          test -n "$FLEXGRAM_CONFIGURATION_JSON"
+          printf '%s' "$FLEXGRAM_CONFIGURATION_JSON" > "$RUNNER_TEMP/visualgram-configuration.json"
+          python3 - "$RUNNER_TEMP/visualgram-configuration.json" <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          with open(path, encoding="utf-8") as source:
+              configuration = json.load(source)
+          configuration["team_id"] = "FLEXGR4M00"
+          configuration["bundle_id"] += ".VisualGramSource"
+          with open(path, "w", encoding="utf-8") as destination:
+              json.dump(configuration, destination)
+          PY
+
+      - name: Build unsigned iPhone IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/visualgram-codesigning/profiles" "$RUNNER_TEMP/visualgram-codesigning/certs"
+          cp build-system/fake-codesigning/certs/* "$RUNNER_TEMP/visualgram-codesigning/certs/"
+          python3 build-system/Make/GenerateUnsignedProfile.py \
+            --source-profile=build-system/fake-codesigning/profiles/Telegram.mobileprovision \
+            --certificate=build-system/fake-codesigning/certs/SelfSigned.p12 \
+            --bundle-id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["bundle_id"])' "$RUNNER_TEMP/visualgram-configuration.json")" \
+            --team-id=FLEXGR4M00 \
+            --output="$RUNNER_TEMP/visualgram-codesigning/profiles/Telegram.mobileprovision"
+          python3 build-system/Make/ImportCertificates.py --path "$RUNNER_TEMP/visualgram-codesigning/certs"
+          python3 -u build-system/Make/Make.py \
+            --cacheDir="$HOME/telegram-bazel-cache" \
+            build \
+            --configurationPath="$RUNNER_TEMP/visualgram-configuration.json" \
+            --codesigningInformationPath="$RUNNER_TEMP/visualgram-codesigning" \
+            --allowMissingApsEnvironment \
+            --disableExtensions \
+            --continueOnError \
+            --buildNumber="$GITHUB_RUN_NUMBER" \
+            --configuration=release_arm64
+          test -f bazel-bin/Telegram/Telegram.ipa
+          mkdir -p build/artifacts
+          cp bazel-bin/Telegram/Telegram.ipa build/artifacts/VisualGram-source-unsigned.ipa
+          printf 'VisualGram-build commit: %s\nTelegram-iOS commit: %s\n' \
+            '7f5f8d1690c8767a1dba6427b61f1a2328e7e60e' \
+            '279f89e4d4f63f17227bf877dc3d8990f22ecd58' \
+            > build/artifacts/source-commits.txt
+
+      - name: Upload IPA for Sideloadly
+        uses: actions/upload-artifact@v4
+        with:
+          name: VisualGram-source-unsigned-ipa
+          path: |
+            build/artifacts/VisualGram-source-unsigned.ipa
+            build/artifacts/source-commits.txt
+          if-no-files-found: error
+          retention-days: 7
