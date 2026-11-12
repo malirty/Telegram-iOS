@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - flexgram
+      - visualgram-13.1.2
 
 permissions:
   contents: read
