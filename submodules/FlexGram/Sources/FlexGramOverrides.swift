@@ -147,7 +147,7 @@ public enum FlexGramOverrides {
 
     public static func setChatBadge(_ badge: String?, accountId: Int64, peerId: Int64) {
         let key = peerKey("chatBadge", accountId: accountId, peerId: peerId)
-        let value = badge?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let value = badge?.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if value.isEmpty {
             if sharedAppearance { defaults.set("", forKey: key) } else { defaults.removeObject(forKey: key) }
         } else {

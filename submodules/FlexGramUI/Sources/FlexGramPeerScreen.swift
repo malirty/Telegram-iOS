@@ -325,12 +325,14 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
                 return nil
             }
             let upgradeable = generic.filter { $0.upgradeVariantsCount != nil || $0.upgradeStars != nil }
-            self.catalogue = Array((upgradeable.isEmpty ? generic : upgradeable).prefix(16))
+            let regular = generic.filter { $0.upgradeVariantsCount == nil && $0.upgradeStars == nil }
+            self.catalogue = Array((upgradeable + regular).prefix(40))
             self.catalogueStatus.text = self.catalogue.isEmpty ? "Каталог пока недоступен. Проверьте соединение и откройте экран позже." : "Выберите подарок из каталога. Изображения загружаются через Telegram."
             self.catalogueStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
             for (index, gift) in self.catalogue.enumerated() {
                 let tile = UIButton(type: .custom)
                 tile.tag = index
+                tile.accessibilityLabel = "Локальная копия подарка: \(gift.title ?? "Подарок")"
                 tile.widthAnchor.constraint(equalToConstant: 108.0).isActive = true
                 tile.heightAnchor.constraint(equalToConstant: 132.0).isActive = true
                 tile.backgroundColor = self.presentationData.theme.list.plainBackgroundColor
