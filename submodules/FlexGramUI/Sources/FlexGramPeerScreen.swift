@@ -23,6 +23,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
         private let galleryScroll = UIScrollView()
         private let galleryStack = UIStackView()
         private let emptyGalleryLabel = UILabel()
+        private let upgradeButton = UIButton(type: .system)
         private let catalogueScroll = UIScrollView()
         private let catalogueStack = UIStackView()
         private let catalogueStatus = UILabel()
@@ -39,6 +40,8 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
         private var displayedPending: [FlexGramScheduledGift] = []
 
         private var catalogue: [StarGift.Gift] = []
+        private var displayedGallery: [FlexGramGift] = []
+        private var selectedGalleryId: String?
         private var selectedGift: StarGift.Gift?
         private var models: [StarGift.UniqueGift.Attribute] = []
         private var backdrops: [StarGift.UniqueGift.Attribute] = []
@@ -124,6 +127,12 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             self.galleryScroll.heightAnchor.constraint(equalToConstant: 104.0).isActive = true
             self.configureHorizontalScroll(self.galleryScroll, stack: self.galleryStack)
             galleryCard.addArrangedSubview(self.galleryScroll)
+            self.upgradeButton.setTitle("Применить оформление к выбранному подарку", for: .normal)
+            self.upgradeButton.setTitleColor(colors.itemAccentColor, for: .normal)
+            self.upgradeButton.titleLabel?.numberOfLines = 0
+            self.upgradeButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44.0).isActive = true
+            self.upgradeButton.addTarget(self, action: #selector(self.upgradeOwnedGift), for: .touchUpInside)
+            galleryCard.addArrangedSubview(self.upgradeButton)
             self.stack.addArrangedSubview(galleryCard)
 
             self.addSectionTitle("КАТАЛОГ TELEGRAM · ЛОКАЛЬНАЯ КОПИЯ")
@@ -440,21 +449,76 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             if let gift = self.currentGift() {
                 self.previewArt.setGift(gift, presentationData: self.presentationData)
             }
+            self.upgradeButton.isEnabled = self.selectedGalleryId != nil && !self.models.isEmpty
         }
 
         private func refreshGallery() {
             let gifts = FlexGramOverrides.gifts(accountId: self.accountId, peerId: self.peerId)
             self.emptyGalleryLabel.isHidden = !gifts.isEmpty
             self.galleryScroll.isHidden = gifts.isEmpty
+            self.upgradeButton.isHidden = gifts.isEmpty
             self.galleryStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-            for gift in gifts.reversed().prefix(12) {
+            self.displayedGallery = Array(gifts.reversed().prefix(12))
+            if !self.displayedGallery.contains(where: { $0.localId == self.selectedGalleryId }) {
+                self.selectedGalleryId = self.displayedGallery.first?.localId
+            }
+            for (index, gift) in self.displayedGallery.enumerated() {
+                let tile = UIButton(type: .custom)
+                tile.tag = index
+                tile.widthAnchor.constraint(equalToConstant: 96.0).isActive = true
+                tile.heightAnchor.constraint(equalToConstant: 96.0).isActive = true
+                tile.layer.cornerRadius = 12.0
+                tile.layer.borderWidth = gift.localId == self.selectedGalleryId ? 2.0 : 0.0
+                tile.layer.borderColor = self.presentationData.theme.list.itemAccentColor.cgColor
+                tile.accessibilityLabel = "Локальный подарок: \(gift.kind)"
+                tile.addTarget(self, action: #selector(self.selectOwnedGift(_:)), for: .touchUpInside)
                 let artwork = FlexGramGiftArtView(context: self.context)
                 artwork.isUserInteractionEnabled = false
-                artwork.widthAnchor.constraint(equalToConstant: 96.0).isActive = true
-                artwork.heightAnchor.constraint(equalToConstant: 96.0).isActive = true
+                artwork.translatesAutoresizingMaskIntoConstraints = false
                 artwork.setGift(gift, presentationData: self.presentationData)
-                self.galleryStack.addArrangedSubview(artwork)
+                tile.addSubview(artwork)
+                NSLayoutConstraint.activate([
+                    artwork.leadingAnchor.constraint(equalTo: tile.leadingAnchor),
+                    artwork.trailingAnchor.constraint(equalTo: tile.trailingAnchor),
+                    artwork.topAnchor.constraint(equalTo: tile.topAnchor),
+                    artwork.bottomAnchor.constraint(equalTo: tile.bottomAnchor)
+                ])
+                self.galleryStack.addArrangedSubview(tile)
             }
+            self.upgradeButton.isEnabled = self.selectedGalleryId != nil && !self.models.isEmpty
+        }
+
+        @objc private func selectOwnedGift(_ sender: UIButton) {
+            guard self.displayedGallery.indices.contains(sender.tag) else { return }
+            let gift = self.displayedGallery[sender.tag]
+            self.selectedGalleryId = gift.localId
+            self.refreshGallery()
+            if let catalogueGift = gift.catalogueGift, case let .generic(value) = catalogueGift,
+               let index = self.catalogue.firstIndex(where: { $0.id == value.id }) {
+                self.selectGift(at: index)
+            }
+        }
+
+        @objc private func upgradeOwnedGift() {
+            guard let selectedId = self.selectedGalleryId,
+                  let owned = self.displayedGallery.first(where: { $0.localId == selectedId }),
+                  let preview = self.currentGift(), let attributes = preview.collectibleAttributes else {
+                self.statusLabel.text = "Выберите подарок и его модель из каталога."
+                return
+            }
+            guard let ownedGift = owned.catalogueGift, case let .generic(original) = ownedGift,
+                  let previewGift = preview.catalogueGift, case let .generic(selected) = previewGift,
+                  original.id == selected.id else {
+                self.statusLabel.text = "Выберите в каталоге тот же подарок, который хотите оформить."
+                return
+            }
+            let updated = FlexGramGift(kind: preview.kind, background: preview.background, pattern: preview.pattern, catalogueGift: owned.catalogueGift, collectibleAttributes: attributes, localId: selectedId)
+            guard FlexGramOverrides.replaceGift(localId: selectedId, accountId: self.accountId, peerId: self.peerId, with: updated) else {
+                self.statusLabel.text = "Не удалось сохранить оформление подарка."
+                return
+            }
+            self.refreshGallery()
+            self.statusLabel.text = "Локальное оформление подарка обновлено. Реальный NFT не создан."
         }
 
         private func refreshBalance() {

@@ -215,7 +215,27 @@ public enum FlexGramOverrides {
               let value = try? JSONDecoder().decode([FlexGramGift].self, from: data) else {
             return []
         }
-        return value
+        guard value.contains(where: { $0.localId == nil }) else { return value }
+        let migrated = value.map { gift -> FlexGramGift in
+            guard gift.localId == nil else { return gift }
+            return FlexGramGift(kind: gift.kind, background: gift.background, pattern: gift.pattern, catalogueGift: gift.catalogueGift, collectibleAttributes: gift.collectibleAttributes)
+        }
+        if let data = try? JSONEncoder().encode(migrated) {
+            defaults.set(data, forKey: peerKey("gifts", accountId: accountId, peerId: peerId))
+        }
+        return migrated
+    }
+
+    @discardableResult
+    public static func replaceGift(localId: String, accountId: Int64, peerId: Int64, with updated: FlexGramGift) -> Bool {
+        guard updated.localId == localId else { return false }
+        var value = storedGifts(accountId: accountId, peerId: peerId)
+        guard let index = value.firstIndex(where: { $0.localId == localId }) else { return false }
+        value[index] = updated
+        guard let data = try? JSONEncoder().encode(value) else { return false }
+        defaults.set(data, forKey: peerKey("gifts", accountId: accountId, peerId: peerId))
+        NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+        return true
     }
 
     @discardableResult
