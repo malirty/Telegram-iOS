@@ -15,15 +15,9 @@
               "value" : "normal"
             }
           ],
-          "fill-specializations" : [
-            {
-              "appearance" : "dark",
-              "value" : "automatic"
-            }
-          ],
-          "glass" : true,
+          "glass" : false,
           "image-name" : "Plane.svg",
-          "name" : "Plane",
+          "name" : "F",
           "position-specializations" : [
             {
               "idiom" : "watchOS",
@@ -47,23 +41,7 @@
               "value" : "normal"
             }
           ],
-          "fill-specializations" : [
-            {
-              "value" : {
-                "linear-gradient" : [
-                  "srgb:0.07059,0.08627,0.12549,1.00000",
-                  "srgb:0.18824,0.62353,0.48235,1.00000"
-                ]
-              }
-            },
-            {
-              "appearance" : "dark",
-              "value" : {
-                "automatic-gradient" : "srgb:0.07059,0.34510,0.27059,1.00000"
-              }
-            }
-          ],
-          "glass" : true,
+          "glass" : false,
           "hidden-specializations" : [
             {
               "value" : false
@@ -74,7 +52,7 @@
             }
           ],
           "image-name" : "Oval.svg",
-          "name" : "Oval",
+          "name" : "Background",
           "position-specializations" : [
             {
               "idiom" : "watchOS",
@@ -104,9 +82,9 @@
       ],
       "shadow" : {
         "kind" : "layer-color",
-        "opacity" : 1
+        "opacity" : 0
       },
-      "specular" : true,
+      "specular" : false,
       "translucency" : {
         "enabled" : false,
         "value" : 1
