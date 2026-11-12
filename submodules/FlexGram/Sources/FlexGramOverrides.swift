@@ -115,14 +115,17 @@ public enum FlexGramOverrides {
         return value
     }
 
-    public static func addGift(_ gift: FlexGramGift, accountId: Int64, peerId: Int64) {
+    @discardableResult
+    public static func addGift(_ gift: FlexGramGift, accountId: Int64, peerId: Int64, cost: Int = 0) -> Bool {
+        guard cost >= 0, virtualStars >= cost else { return false }
         let key = peerKey("gifts", accountId: accountId, peerId: peerId)
         var value = gifts(accountId: accountId, peerId: peerId)
         value.append(gift)
-        if let data = try? JSONEncoder().encode(value) {
-            defaults.set(data, forKey: key)
-            NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
-        }
+        guard let data = try? JSONEncoder().encode(value) else { return false }
+        defaults.set(data, forKey: key)
+        if cost > 0 { defaults.set(virtualStars - cost, forKey: "flexgram.virtualStars") }
+        NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+        return true
     }
 }
 

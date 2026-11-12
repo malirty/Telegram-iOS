@@ -155,7 +155,7 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
             interaction.openSettings(.profile)
         }))
 
-        items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 1, text: "Флекс · FlexGram", icon: nil, action: {
+        items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 1, label: .text("\(FlexGramOverrides.virtualStars) ★"), text: "Флекс · виртуальный баланс", icon: nil, action: {
             guard let controller = interaction.getController() else { return }
             controller.push(FlexGramScreen(context: context))
         }))

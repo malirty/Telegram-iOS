@@ -454,8 +454,10 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
                 self.statusLabel.text = "Нужно 100 виртуальных Stars. Добавьте их в Настройки → Флекс."
                 return
             }
-            FlexGramOverrides.virtualStars -= 100
-            FlexGramOverrides.addGift(gift, accountId: self.accountId, peerId: self.peerId)
+            guard FlexGramOverrides.addGift(gift, accountId: self.accountId, peerId: self.peerId, cost: 100) else {
+                self.statusLabel.text = "Не удалось сохранить подарок. Баланс не изменён."
+                return
+            }
             self.refreshGallery()
             self.refreshBalance()
             self.statusLabel.text = self.peerId == self.accountId ? "Локальная копия добавлена в ваш профиль." : "Локальная копия добавлена в профиль собеседника только на этом устройстве."
