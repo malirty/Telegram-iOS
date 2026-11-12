@@ -89,6 +89,16 @@ public enum FlexGramOverrides {
         return entries
     }
 
+    public static func walletCardGiftId(accountId: Int64) -> String? {
+        return defaults.string(forKey: "flexgram.walletCardGift.\(accountId)")
+    }
+
+    public static func setWalletCardGiftId(_ id: String?, accountId: Int64) {
+        let key = "flexgram.walletCardGift.\(accountId)"
+        if let id { defaults.set(id, forKey: key) } else { defaults.removeObject(forKey: key) }
+        NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+    }
+
     private static func appendBalanceEntry(_ entry: FlexGramBalanceEntry) {
         var entries = balanceHistory
         entries.insert(entry, at: 0)

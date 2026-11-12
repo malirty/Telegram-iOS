@@ -9,7 +9,12 @@ import FlexGram
 /// A local-only wallet and entry point for profile editing and gift copies.
 public final class FlexGramScreen: ViewController {
     private final class Node: ViewControllerTracingNode {
+        private let accountId: Int64
         private let presentationData: PresentationData
+        private let walletArtwork: FlexGramGiftArtView
+        private let walletArtContainer = UIView()
+        private let walletHint = UILabel()
+        private let walletGiftButton = UIButton(type: .system)
         private let scrollView = UIScrollView()
         private let stack = UIStackView()
         private let starsLabel = UILabel()
@@ -23,8 +28,10 @@ public final class FlexGramScreen: ViewController {
         var onEditTon: (() -> Void)?
         var onOpenMyProfile: (() -> Void)?
 
-        init(presentationData: PresentationData) {
+        init(context: AccountContext, presentationData: PresentationData) {
+            self.accountId = context.account.peerId.toInt64()
             self.presentationData = presentationData
+            self.walletArtwork = FlexGramGiftArtView(context: context)
             super.init()
             let colors = presentationData.theme.list
             self.backgroundColor = colors.plainBackgroundColor
@@ -44,6 +51,26 @@ public final class FlexGramScreen: ViewController {
 
             self.addSectionTitle("ВИРТУАЛЬНЫЙ БАЛАНС")
             let walletCard = self.makeGroup()
+            self.walletArtContainer.heightAnchor.constraint(equalToConstant: 108.0).isActive = true
+            self.walletArtwork.translatesAutoresizingMaskIntoConstraints = false
+            self.walletArtwork.isUserInteractionEnabled = false
+            self.walletArtContainer.addSubview(self.walletArtwork)
+            NSLayoutConstraint.activate([
+                self.walletArtwork.centerXAnchor.constraint(equalTo: self.walletArtContainer.centerXAnchor),
+                self.walletArtwork.topAnchor.constraint(equalTo: self.walletArtContainer.topAnchor, constant: 2.0),
+                self.walletArtwork.widthAnchor.constraint(equalToConstant: 104.0),
+                self.walletArtwork.heightAnchor.constraint(equalToConstant: 104.0)
+            ])
+            walletCard.addArrangedSubview(self.walletArtContainer)
+            self.walletHint.font = .systemFont(ofSize: 14.0)
+            self.walletHint.textColor = colors.itemSecondaryTextColor
+            self.walletHint.textAlignment = .center
+            self.walletHint.numberOfLines = 0
+            walletCard.addArrangedSubview(self.walletHint)
+            self.walletGiftButton.setTitleColor(colors.itemAccentColor, for: .normal)
+            self.walletGiftButton.addTarget(self, action: #selector(self.walletButtonPressed), for: .touchUpInside)
+            self.walletGiftButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 40.0).isActive = true
+            walletCard.addArrangedSubview(self.walletGiftButton)
             let starsRow = self.makeBalanceRow(symbol: "star.fill", valueLabel: self.starsLabel, decrement: #selector(self.decreaseStars), increment: #selector(self.increaseStars), edit: #selector(self.editStars))
             walletCard.addArrangedSubview(starsRow)
             walletCard.addArrangedSubview(self.separator())
@@ -122,7 +149,24 @@ public final class FlexGramScreen: ViewController {
             self.starsLabel.text = "\(FlexGramOverrides.virtualStars) Stars"
             self.tonLabel.text = "\(String(format: "%.2f", FlexGramOverrides.virtualTon)) TON"
             self.sharedSwitch.isOn = FlexGramOverrides.sharedAppearance
+            self.refreshWalletArtwork()
             self.refreshHistory()
+        }
+
+        private func refreshWalletArtwork() {
+            let gifts = FlexGramOverrides.gifts(accountId: self.accountId, peerId: self.accountId)
+            guard !gifts.isEmpty else {
+                self.walletArtContainer.isHidden = true
+                self.walletHint.text = "Локальная карта без изображения подарка"
+                self.walletGiftButton.setTitle("Открыть мои подарки", for: .normal)
+                return
+            }
+            let selectedId = FlexGramOverrides.walletCardGiftId(accountId: self.accountId)
+            let selected = gifts.first(where: { $0.localId == selectedId && selectedId != nil }) ?? gifts[gifts.count - 1]
+            self.walletArtContainer.isHidden = false
+            self.walletArtwork.setGift(selected, presentationData: self.presentationData)
+            self.walletHint.text = "Локальная карта · \(selected.kind)"
+            self.walletGiftButton.setTitle("Сменить изображение карты", for: .normal)
         }
 
         private func refreshHistory() {
@@ -284,6 +328,15 @@ public final class FlexGramScreen: ViewController {
         @objc private func profileChanged() { FlexGramLocalSettings.profileDisplayNameOverride = self.nameField.text }
         @objc private func authorChanged() { FlexGramLocalSettings.outgoingAuthorNameOverride = self.authorField.text }
         @objc private func sharedChanged() { FlexGramOverrides.sharedAppearance = self.sharedSwitch.isOn }
+        @objc private func walletButtonPressed() {
+            let gifts = FlexGramOverrides.gifts(accountId: self.accountId, peerId: self.accountId)
+            guard !gifts.isEmpty else { self.onOpenMyProfile?(); return }
+            let selectedId = FlexGramOverrides.walletCardGiftId(accountId: self.accountId)
+            let currentIndex = gifts.firstIndex(where: { $0.localId == selectedId && selectedId != nil }) ?? (gifts.count - 1)
+            let next = gifts[(currentIndex + 1) % gifts.count]
+            FlexGramOverrides.setWalletCardGiftId(next.localId, accountId: self.accountId)
+            self.refreshWalletArtwork()
+        }
     }
 
     private let context: AccountContext
@@ -300,7 +353,7 @@ public final class FlexGramScreen: ViewController {
     private var node: Node { self.displayNode as! Node }
 
     override public func loadDisplayNode() {
-        let node = Node(presentationData: self.presentationData)
+        let node = Node(context: self.context, presentationData: self.presentationData)
         node.onEditStars = { [weak self] in self?.editBalance(isStars: true) }
         node.onEditTon = { [weak self] in self?.editBalance(isStars: false) }
         node.onOpenMyProfile = { [weak self] in
