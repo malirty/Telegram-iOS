@@ -79,7 +79,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             self.stack.layoutMargins = UIEdgeInsets(top: 20.0, left: 16.0, bottom: 32.0, right: 16.0)
 
             self.addHeader(title)
-            self.addDescription("Имя, аватар и подарки ниже видны только в вашем FlexGram.")
+            self.addDescription("Имя, аватар и подарки ниже видны только в этом приложении.")
 
             let identityCard = self.makeGroup()
             self.avatarView.contentMode = .scaleAspectFill
@@ -731,7 +731,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             }
             self.refreshBalance()
             self.refreshPending()
-            self.statusLabel.text = "Подарок появится в этом профиле после указанного времени, когда FlexGram открыт."
+            self.statusLabel.text = "Подарок появится в этом профиле после указанного времени, когда приложение открыто."
         }
 
         @objc private func cancelPending(_ sender: UIButton) {
@@ -752,7 +752,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
                 return
             }
             guard FlexGramOverrides.virtualStars >= 100 else {
-                self.statusLabel.text = "Нужно 100 виртуальных Stars. Добавьте их в Настройки → Флекс."
+                self.statusLabel.text = "Нужно 100 виртуальных Stars. Добавьте их в Настройки → VisualGram."
                 return
             }
             guard FlexGramOverrides.addGift(gift, accountId: self.accountId, peerId: self.peerId, cost: 100) else {
@@ -777,7 +777,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
         self.peerTitle = peerTitle
         self.presentationData = context.sharedContext.currentPresentationData.with { $0 }
         super.init(navigationBarPresentationData: NavigationBarPresentationData(presentationData: self.presentationData))
-        self.title = "Флекс · профиль"
+        self.title = "VisualGram · профиль"
     }
 
     required init(coder aDecoder: NSCoder) { fatalError("init(coder:) has not been implemented") }

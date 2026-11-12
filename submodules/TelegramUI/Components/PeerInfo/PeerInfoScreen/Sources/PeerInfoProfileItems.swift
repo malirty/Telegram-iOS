@@ -101,7 +101,7 @@ func infoItems(
     
     if case let .user(user) = data.peer {
         let localGifts = FlexGramOverrides.gifts(accountId: context.account.peerId.toInt64(), peerId: user.id.toInt64())
-        items[.peerInfo]!.append(PeerInfoScreenDisclosureItem(id: AnyHashable("flexgram_peer"), label: .text(localGifts.isEmpty ? "" : "\(localGifts.count) 🎁"), text: "Флекс · локальный профиль и подарки", icon: nil, action: {
+        items[.peerInfo]!.append(PeerInfoScreenDisclosureItem(id: AnyHashable("flexgram_peer"), label: .text(localGifts.isEmpty ? "" : "\(localGifts.count) 🎁"), text: "VisualGram · профиль и подарки", icon: nil, action: {
             guard let controller = interaction.getController() else { return }
             controller.push(FlexGramPeerScreen(context: context, peerId: user.id.toInt64(), peerTitle: EnginePeer(user).displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)))
         }))

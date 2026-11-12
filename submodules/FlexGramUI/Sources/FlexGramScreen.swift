@@ -49,7 +49,7 @@ public final class FlexGramScreen: ViewController {
             self.stack.layoutMargins = UIEdgeInsets(top: 20.0, left: 16.0, bottom: 32.0, right: 16.0)
 
             let titleLabel = UILabel()
-            titleLabel.text = "Флекс"
+            titleLabel.text = "VisualGram"
             titleLabel.font = .systemFont(ofSize: 30.0, weight: .bold)
             titleLabel.textColor = colors.itemPrimaryTextColor
             self.stack.addArrangedSubview(titleLabel)
@@ -150,7 +150,7 @@ public final class FlexGramScreen: ViewController {
             self.addSectionTitle("КАК ЭТО РАБОТАЕТ")
             let infoCard = self.makeGroup()
             let info = UILabel()
-            info.text = "Выберите изображение из каталога Telegram в локальном профиле. Подарок появится только в вашем FlexGram и не будет доставлен другому человеку. Реальных платежей нет."
+            info.text = "Выберите изображение из каталога Telegram в локальном профиле. Подарок появится только в этом приложении и не будет доставлен другому человеку. Реальных платежей нет."
             info.font = .systemFont(ofSize: 14.0)
             info.textColor = colors.itemSecondaryTextColor
             info.numberOfLines = 0
@@ -424,7 +424,7 @@ public final class FlexGramScreen: ViewController {
         self.context = context
         self.presentationData = context.sharedContext.currentPresentationData.with { $0 }
         super.init(navigationBarPresentationData: NavigationBarPresentationData(presentationData: self.presentationData))
-        self.title = "FlexGram"
+        self.title = "VisualGram"
     }
 
     required init(coder aDecoder: NSCoder) { fatalError("init(coder:) has not been implemented") }
