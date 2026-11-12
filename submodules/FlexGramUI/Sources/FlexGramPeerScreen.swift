@@ -24,6 +24,11 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
         private let galleryStack = UIStackView()
         private let emptyGalleryLabel = UILabel()
         private let upgradeButton = UIButton(type: .system)
+        private let sellButton = UIButton(type: .system)
+        private let transferScroll = UIScrollView()
+        private let transferStack = UIStackView()
+        private let transferButton = UIButton(type: .system)
+        private let transferStatus = UILabel()
         private let catalogueScroll = UIScrollView()
         private let catalogueStack = UIStackView()
         private let catalogueStatus = UILabel()
@@ -42,6 +47,8 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
         private var catalogue: [StarGift.Gift] = []
         private var displayedGallery: [FlexGramGift] = []
         private var selectedGalleryId: String?
+        private var displayedTransferGifts: [FlexGramGift] = []
+        private var selectedTransferId: String?
         private var selectedGift: StarGift.Gift?
         private var models: [StarGift.UniqueGift.Attribute] = []
         private var backdrops: [StarGift.UniqueGift.Attribute] = []
@@ -133,7 +140,35 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             self.upgradeButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44.0).isActive = true
             self.upgradeButton.addTarget(self, action: #selector(self.upgradeOwnedGift), for: .touchUpInside)
             galleryCard.addArrangedSubview(self.upgradeButton)
+            if peerId == self.accountId {
+                self.sellButton.setTitle("Продать выбранный локально · +75 виртуальных Stars", for: .normal)
+                self.sellButton.setTitleColor(colors.itemAccentColor, for: .normal)
+                self.sellButton.titleLabel?.numberOfLines = 0
+                self.sellButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44.0).isActive = true
+                self.sellButton.addTarget(self, action: #selector(self.sellOwnedGift), for: .touchUpInside)
+                galleryCard.addArrangedSubview(self.sellButton)
+            }
             self.stack.addArrangedSubview(galleryCard)
+
+            if peerId != self.accountId {
+                self.addSectionTitle("ПЕРЕДАТЬ МОЙ ПОДАРОК")
+                let transferCard = self.makeGroup()
+                self.transferStatus.font = .systemFont(ofSize: 14.0)
+                self.transferStatus.textColor = colors.itemSecondaryTextColor
+                self.transferStatus.numberOfLines = 0
+                transferCard.addArrangedSubview(self.transferStatus)
+                self.transferScroll.showsHorizontalScrollIndicator = false
+                self.transferScroll.heightAnchor.constraint(equalToConstant: 104.0).isActive = true
+                self.configureHorizontalScroll(self.transferScroll, stack: self.transferStack)
+                transferCard.addArrangedSubview(self.transferScroll)
+                self.transferButton.setTitle("Передать выбранный · комиссия 25 виртуальных Stars", for: .normal)
+                self.transferButton.setTitleColor(colors.itemAccentColor, for: .normal)
+                self.transferButton.titleLabel?.numberOfLines = 0
+                self.transferButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44.0).isActive = true
+                self.transferButton.addTarget(self, action: #selector(self.transferOwnedGift), for: .touchUpInside)
+                transferCard.addArrangedSubview(self.transferButton)
+                self.stack.addArrangedSubview(transferCard)
+            }
 
             self.addSectionTitle("КАТАЛОГ TELEGRAM · ЛОКАЛЬНАЯ КОПИЯ")
             let makerCard = self.makeGroup()
@@ -201,6 +236,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             self.stack.addArrangedSubview(makerCard)
 
             self.refreshGallery()
+            self.refreshTransferGifts()
             self.refreshBalance()
             self.refreshPending()
             self.refreshPreview()
@@ -237,6 +273,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
 
         func refreshLocalValues() {
             self.refreshGallery()
+            self.refreshTransferGifts()
             self.refreshBalance()
             self.refreshPending()
         }
@@ -457,6 +494,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             self.emptyGalleryLabel.isHidden = !gifts.isEmpty
             self.galleryScroll.isHidden = gifts.isEmpty
             self.upgradeButton.isHidden = gifts.isEmpty
+            self.sellButton.isHidden = gifts.isEmpty
             self.galleryStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
             self.displayedGallery = Array(gifts.reversed().prefix(12))
             if !self.displayedGallery.contains(where: { $0.localId == self.selectedGalleryId }) {
@@ -486,6 +524,61 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
                 self.galleryStack.addArrangedSubview(tile)
             }
             self.upgradeButton.isEnabled = self.selectedGalleryId != nil && !self.models.isEmpty
+            self.sellButton.isEnabled = self.selectedGalleryId != nil
+        }
+
+        private func refreshTransferGifts() {
+            guard self.peerId != self.accountId else { return }
+            let gifts = FlexGramOverrides.gifts(accountId: self.accountId, peerId: self.accountId)
+            self.displayedTransferGifts = Array(gifts.reversed().prefix(20))
+            if !self.displayedTransferGifts.contains(where: { $0.localId == self.selectedTransferId }) {
+                self.selectedTransferId = self.displayedTransferGifts.first?.localId
+            }
+            self.transferStatus.text = gifts.isEmpty
+                ? "В вашем локальном профиле пока нет подарков."
+                : "Подарок переместится только на этом устройстве. Собеседник его не увидит."
+            self.transferScroll.isHidden = gifts.isEmpty
+            self.transferButton.isEnabled = self.selectedTransferId != nil && FlexGramOverrides.virtualStars >= 25
+            self.transferStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            for (index, gift) in self.displayedTransferGifts.enumerated() {
+                let tile = UIButton(type: .custom)
+                tile.tag = index
+                tile.widthAnchor.constraint(equalToConstant: 96.0).isActive = true
+                tile.heightAnchor.constraint(equalToConstant: 96.0).isActive = true
+                tile.layer.cornerRadius = 12.0
+                tile.layer.borderWidth = gift.localId == self.selectedTransferId ? 2.0 : 0.0
+                tile.layer.borderColor = self.presentationData.theme.list.itemAccentColor.cgColor
+                tile.accessibilityLabel = "Передать локальный подарок: \(gift.kind)"
+                tile.addTarget(self, action: #selector(self.selectTransferGift(_:)), for: .touchUpInside)
+                let artwork = FlexGramGiftArtView(context: self.context)
+                artwork.isUserInteractionEnabled = false
+                artwork.translatesAutoresizingMaskIntoConstraints = false
+                artwork.setGift(gift, presentationData: self.presentationData)
+                tile.addSubview(artwork)
+                NSLayoutConstraint.activate([
+                    artwork.leadingAnchor.constraint(equalTo: tile.leadingAnchor),
+                    artwork.trailingAnchor.constraint(equalTo: tile.trailingAnchor),
+                    artwork.topAnchor.constraint(equalTo: tile.topAnchor),
+                    artwork.bottomAnchor.constraint(equalTo: tile.bottomAnchor)
+                ])
+                self.transferStack.addArrangedSubview(tile)
+            }
+        }
+
+        @objc private func selectTransferGift(_ sender: UIButton) {
+            guard self.displayedTransferGifts.indices.contains(sender.tag) else { return }
+            self.selectedTransferId = self.displayedTransferGifts[sender.tag].localId
+            self.refreshTransferGifts()
+        }
+
+        @objc private func transferOwnedGift() {
+            guard let localId = self.selectedTransferId else { return }
+            guard FlexGramOverrides.transferGift(localId: localId, accountId: self.accountId, fromPeerId: self.accountId, toPeerId: self.peerId) else {
+                self.transferStatus.text = "Не удалось передать подарок. Проверьте баланс виртуальных Stars."
+                return
+            }
+            self.refreshLocalValues()
+            self.transferStatus.text = "Подарок передан локально. Другой пользователь его не увидит."
         }
 
         @objc private func selectOwnedGift(_ sender: UIButton) {
@@ -521,8 +614,18 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             self.statusLabel.text = "Локальное оформление подарка обновлено. Реальный NFT не создан."
         }
 
+        @objc private func sellOwnedGift() {
+            guard self.peerId == self.accountId, let selectedId = self.selectedGalleryId else { return }
+            guard FlexGramOverrides.sellGift(localId: selectedId, accountId: self.accountId, peerId: self.peerId) else {
+                self.statusLabel.text = "Не удалось продать локальный подарок."
+                return
+            }
+            self.refreshLocalValues()
+            self.statusLabel.text = "Подарок удалён только из локального профиля, начислено 75 виртуальных Stars."
+        }
+
         private func refreshBalance() {
-            self.balanceLabel.text = "Доступно: \(FlexGramOverrides.virtualStars) виртуальных Stars · \(String(format: "%.2f", FlexGramOverrides.virtualTon)) виртуальных TON"
+            self.balanceLabel.text = "Доступно: \(FlexGramOverrides.virtualStars) виртуальных Stars · \(String(format: "%.2f", FlexGramOverrides.virtualTon)) TON · \(String(format: "%.2f", FlexGramOverrides.virtualGram)) GRAM"
         }
 
         private func refreshPending() {

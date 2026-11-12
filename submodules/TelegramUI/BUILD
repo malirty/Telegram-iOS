@@ -66,6 +66,7 @@ swift_library(
     }),
     deps = [
         "//submodules/FlexGram:FlexGram",
+        "//submodules/FlexGramUI:FlexGramUI",
         "//submodules/CrashReporting:CrashReporting",
         "//third-party/recaptcha:RecaptchaEnterprise",
         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",

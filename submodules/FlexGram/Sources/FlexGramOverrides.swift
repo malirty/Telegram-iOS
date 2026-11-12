@@ -22,7 +22,7 @@ public struct FlexGramGift: Codable {
 }
 
 public struct FlexGramBalanceEntry: Codable {
-    public enum Currency: String, Codable, Equatable { case stars, ton }
+    public enum Currency: String, Codable, Equatable { case stars, ton, gram }
     public let date: Date
     public let currency: Currency
     public let change: Double
@@ -45,6 +45,18 @@ public struct FlexGramScheduledGift: Codable {
     public let gift: FlexGramGift
     public let deliveryDate: Date
     public let cost: Int
+}
+
+public struct FlexGramWalletCardLayout: Codable {
+    public let x: Double
+    public let y: Double
+    public let scale: Double
+
+    public init(x: Double = 0.0, y: Double = 0.0, scale: Double = 1.0) {
+        self.x = x
+        self.y = y
+        self.scale = scale
+    }
 }
 
 /// Presentation data for this installation only. No Telegram engine records are changed.
@@ -83,6 +95,18 @@ public enum FlexGramOverrides {
         }
     }
 
+    public static var virtualGram: Double {
+        get { max(0, defaults.double(forKey: "flexgram.virtualGram")) }
+        set {
+            let previous = virtualGram
+            let value = newValue.isFinite ? max(0, min(1_000_000_000, newValue)) : previous
+            guard value != previous else { return }
+            defaults.set(value, forKey: "flexgram.virtualGram")
+            appendBalanceEntry(FlexGramBalanceEntry(currency: .gram, change: value - previous, balance: value, title: "Изменение баланса"))
+            NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+        }
+    }
+
     public static var balanceHistory: [FlexGramBalanceEntry] {
         guard let data = defaults.data(forKey: "flexgram.balanceHistory"),
               let entries = try? JSONDecoder().decode([FlexGramBalanceEntry].self, from: data) else { return [] }
@@ -96,6 +120,25 @@ public enum FlexGramOverrides {
     public static func setWalletCardGiftId(_ id: String?, accountId: Int64) {
         let key = "flexgram.walletCardGift.\(accountId)"
         if let id { defaults.set(id, forKey: key) } else { defaults.removeObject(forKey: key) }
+        NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+    }
+
+    public static func walletCardLayout(accountId: Int64) -> FlexGramWalletCardLayout {
+        let key = sharedAppearance ? "flexgram.walletCardLayout.shared" : "flexgram.walletCardLayout.\(accountId)"
+        guard let data = defaults.data(forKey: key),
+              let value = try? JSONDecoder().decode(FlexGramWalletCardLayout.self, from: data) else {
+            return FlexGramWalletCardLayout()
+        }
+        return value
+    }
+
+    public static func setWalletCardLayout(_ layout: FlexGramWalletCardLayout, accountId: Int64) {
+        guard layout.x.isFinite, layout.y.isFinite, layout.scale.isFinite,
+              abs(layout.x) <= 50.0, abs(layout.y) <= 20.0,
+              layout.scale >= 0.6, layout.scale <= 1.4,
+              let data = try? JSONEncoder().encode(layout) else { return }
+        let key = sharedAppearance ? "flexgram.walletCardLayout.shared" : "flexgram.walletCardLayout.\(accountId)"
+        defaults.set(data, forKey: key)
         NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
     }
 
@@ -234,6 +277,43 @@ public enum FlexGramOverrides {
         value[index] = updated
         guard let data = try? JSONEncoder().encode(value) else { return false }
         defaults.set(data, forKey: peerKey("gifts", accountId: accountId, peerId: peerId))
+        NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+        return true
+    }
+
+    @discardableResult
+    public static func transferGift(localId: String, accountId: Int64, fromPeerId: Int64, toPeerId: Int64, cost: Int = 25) -> Bool {
+        let balance = virtualStars
+        guard fromPeerId != toPeerId, cost >= 0, balance >= cost else { return false }
+        var source = storedGifts(accountId: accountId, peerId: fromPeerId)
+        guard let index = source.firstIndex(where: { $0.localId == localId }) else { return false }
+        let gift = source.remove(at: index)
+        var target = storedGifts(accountId: accountId, peerId: toPeerId)
+        guard !target.contains(where: { $0.localId == localId }) else { return false }
+        target.append(gift)
+        guard let sourceData = try? JSONEncoder().encode(source),
+              let targetData = try? JSONEncoder().encode(target) else { return false }
+        defaults.set(targetData, forKey: peerKey("gifts", accountId: accountId, peerId: toPeerId))
+        defaults.set(sourceData, forKey: peerKey("gifts", accountId: accountId, peerId: fromPeerId))
+        if cost > 0 {
+            defaults.set(balance - cost, forKey: "flexgram.virtualStars")
+            appendBalanceEntry(FlexGramBalanceEntry(currency: .stars, change: Double(-cost), balance: Double(balance - cost), title: "Локальный перевод подарка: \(gift.kind)"))
+        }
+        NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+        return true
+    }
+
+    @discardableResult
+    public static func sellGift(localId: String, accountId: Int64, peerId: Int64, price: Int = 75) -> Bool {
+        let balance = virtualStars
+        guard peerId == accountId, price > 0, balance <= 1_000_000_000 - price else { return false }
+        var gifts = storedGifts(accountId: accountId, peerId: peerId)
+        guard let index = gifts.firstIndex(where: { $0.localId == localId }) else { return false }
+        let gift = gifts.remove(at: index)
+        guard let data = try? JSONEncoder().encode(gifts) else { return false }
+        defaults.set(data, forKey: peerKey("gifts", accountId: accountId, peerId: peerId))
+        defaults.set(balance + price, forKey: "flexgram.virtualStars")
+        appendBalanceEntry(FlexGramBalanceEntry(currency: .stars, change: Double(price), balance: Double(balance + price), title: "Локальная продажа подарка: \(gift.kind)"))
         NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
         return true
     }
