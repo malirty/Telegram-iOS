@@ -13,6 +13,8 @@ import DeviceAccess
 import TelegramStringFormatting
 import PeerNameColorItem
 import WalletContext
+import FlexGram
+import FlexGramUI
 
 enum SettingsSection: Int, CaseIterable {
     case edit
@@ -151,6 +153,11 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
         
         items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 0, text: presentationData.strings.Settings_MyProfile, icon: PresentationResourcesSettings.myProfile, action: {
             interaction.openSettings(.profile)
+        }))
+
+        items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 1, label: .text("\(FlexGramOverrides.virtualStars) ★"), text: "VisualGram · локальный вид", icon: nil, action: {
+            guard let controller = interaction.getController() else { return }
+            controller.push(FlexGramScreen(context: context))
         }))
         
         if WalletConfiguration.with(appConfiguration: context.currentAppConfiguration.with { $0 }).isAvailable {

@@ -137,6 +137,7 @@ open class TabBarControllerImpl: ViewController, TabBarController {
     }
     
     private var debugTapCounter: (Double, Int) = (0.0, 0)
+    private var tripleTapCounter: (Double, Int, Int) = (0.0, -1, 0)
     
     public func frameForControllerTab(controller: ViewController) -> CGRect? {
         if let index = self.controllers.firstIndex(of: controller) {
@@ -174,6 +175,17 @@ open class TabBarControllerImpl: ViewController, TabBarController {
                 }
 
                 let timestamp = CACurrentMediaTime()
+                if !longTap {
+                    if strongSelf.tripleTapCounter.1 != index || timestamp - strongSelf.tripleTapCounter.0 > 1.0 {
+                        strongSelf.tripleTapCounter = (timestamp, index, 1)
+                    } else {
+                        strongSelf.tripleTapCounter = (timestamp, index, strongSelf.tripleTapCounter.2 + 1)
+                    }
+                    if strongSelf.tripleTapCounter.2 == 3 {
+                        strongSelf.tripleTapCounter = (0.0, -1, 0)
+                        strongSelf.controllers[index].tabBarItemTripleTapAction?()
+                    }
+                }
                 if strongSelf.debugTapCounter.0 < timestamp - 0.4 {
                     strongSelf.debugTapCounter.0 = timestamp
                     strongSelf.debugTapCounter.1 = 0

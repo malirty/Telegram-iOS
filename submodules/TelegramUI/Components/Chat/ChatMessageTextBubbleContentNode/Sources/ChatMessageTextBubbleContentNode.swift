@@ -13,6 +13,7 @@ import AnimatedStickerNode
 import TelegramAnimatedStickerNode
 import SwiftSignalKit
 import AccountContext
+import FlexGram
 import YuvConversion
 import AnimationCache
 import LottieAnimationCache
@@ -441,6 +442,12 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                 }
                 
                 
+                if !item.message.text.isEmpty,
+                   let localText = FlexGramOverrides.messageText(accountId: item.context.account.peerId.toInt64(), messageId: item.message.id.description) {
+                    rawText = localText
+                    messageEntities = []
+                }
+
                 if incoming && item.associatedData.isSuspiciousPeer, let entities = messageEntities {
                     messageEntities = entities.filter(\.isShownFromSuspiciousPeer)
                 }

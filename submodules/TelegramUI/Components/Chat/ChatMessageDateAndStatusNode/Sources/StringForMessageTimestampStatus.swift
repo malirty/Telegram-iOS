@@ -6,6 +6,7 @@ import TelegramStringFormatting
 import TextFormat
 import LocalizedPeerData
 import AccountContext
+import FlexGram
 
 public enum MessageTimestampStatusFormat {
     case full
@@ -231,6 +232,9 @@ public func stringForMessageTimestampStatus(
                 }
             }
         }
+    }
+    if message.author?.id == context.account.peerId, let localName = FlexGramLocalSettings.outgoingAuthorNameOverride {
+        authorTitle = localName
     }
     if (Namespaces.Message.allEphemeral.contains(message.id.namespace) || Namespaces.Message.allWelcomeMessages.contains(message.id.namespace)), let channel = message.peers[message.id.peerId] as? TelegramChannel, case .broadcast = channel.info {
         authorTitle = nil

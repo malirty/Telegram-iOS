@@ -31,6 +31,7 @@ import PeerInfoStoryGridScreen
 import ShareWithPeersScreen
 import ChatEmptyNode
 import NewsScreen
+import FlexGramUI
 
 private class DetailsChatPlaceholderNode: ASDisplayNode, NavigationDetailsPlaceholderNode {
     private var presentationData: PresentationData
@@ -200,6 +201,10 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         let tabBarController = TabBarControllerImpl(theme: self.presentationData.theme, strings: self.presentationData.strings)
         tabBarController.navigationPresentation = .master
         let chatListController = self.context.sharedContext.makeChatListController(context: self.context, location: .chatList(groupId: .root), controlsHistoryPreload: true, hideNetworkActivityStatus: false, previewing: false, enableDebugActions: !GlobalExperimentalSettings.isAppStoreBuild)
+        chatListController.tabBarItemTripleTapAction = { [weak self] in
+            guard let self else { return }
+            self.pushViewController(FlexGramScreen(context: self.context))
+        }
         if let sharedContext = self.context.sharedContext as? SharedAccountContextImpl {
             chatListController.tabBarItem.badgeValue = sharedContext.switchingData.chatListBadge
         }

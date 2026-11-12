@@ -10,6 +10,7 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/FlexGram:FlexGram",
         "//submodules/AsyncDisplayKit",
         "//submodules/LottieSettings:LottieSettings",
         "//submodules/Display",

@@ -1,4 +1,5 @@
 import UIKit
+import FlexGram
 import SwiftSignalKit
 import Display
 import TelegramCore
@@ -248,6 +249,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     private var statusBarHost: ApplicationStatusBarHost?
     private var dataImportSplash: LegacyDataImportSplash?
     private var memoryUsageOverlayView: UILabel?
+    private var flexGramGiftTimer: Timer?
     
     private let crashReportPromptDisposable = MetaDisposable()
     private var buildConfig: BuildConfig?
@@ -319,7 +321,9 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         let appGroupName = "group.\(baseAppBundleId)"
 
         let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
-        configuration.sharedContainerIdentifier = appGroupName
+        if FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName) != nil {
+            configuration.sharedContainerIdentifier = appGroupName
+        }
         configuration.isDiscretionary = false
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
         self.urlSessions.append(session)
@@ -573,7 +577,17 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         try! PasscodeEnvironment.shared.configure(PasscodeConfiguration(appGroupIdentifier: appGroupName, processRole: .mainApp, biometricKeychainService: walletBiometricKeychainService), privateAccessGroup: {
             BuildConfig.keychainAccessGroup(baseAppBundleId: baseAppBundleId)
         })
-        let maybeAppGroupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)
+        let appGroupUrl: URL
+        if let sharedContainerUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName) {
+            appGroupUrl = sharedContainerUrl
+        } else {
+            // Sideloadly can re-sign the app without the App Groups entitlement. With extensions
+            // disabled, the main app can keep its database in its own persistent container.
+            appGroupUrl = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("FlexGram", isDirectory: true)
+            NSLog("FlexGram: App Group unavailable; using app-local storage")
+        }
+        let _ = try? FileManager.default.createDirectory(at: appGroupUrl, withIntermediateDirectories: true)
         
         let buildConfig = BuildConfig(baseAppBundleId: baseAppBundleId)
         self.buildConfig = buildConfig
@@ -696,11 +710,6 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             networkEngineFactory: RustNetworkEngineFactory()
         )
         
-        guard let appGroupUrl = maybeAppGroupUrl else {
-            self.mainWindow?.presentNative(UIAlertController(title: nil, message: "Error 2", preferredStyle: .alert))
-            return true
-        }
-        
         var isDebugConfiguration = false
         #if DEBUG
         isDebugConfiguration = true
@@ -726,6 +735,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         } else {
             rootPath = rootPathForBasePath(appGroupUrl.path)
         }
+        let _ = try? FileManager.default.createDirectory(atPath: rootPath, withIntermediateDirectories: true)
         if !isUITest {
             performAppGroupUpgrades(appGroupPath: appGroupUrl.path, rootPath: rootPath)
         }
@@ -2042,6 +2052,8 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     }
 
     func handleWillResignActive() {
+        self.flexGramGiftTimer?.invalidate()
+        self.flexGramGiftTimer = nil
         self.isActiveValue = false
         self.isActivePromise.set(false)
         self.clearNotificationsManager?.commitNow()
@@ -2148,6 +2160,13 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     }
 
     func handleDidBecomeActive() {
+        _ = FlexGramOverrides.deliverDueGifts()
+        self.flexGramGiftTimer?.invalidate()
+        let flexGramGiftTimer = Timer(timeInterval: 1.0, repeats: true) { _ in
+            _ = FlexGramOverrides.deliverDueGifts()
+        }
+        RunLoop.main.add(flexGramGiftTimer, forMode: .common)
+        self.flexGramGiftTimer = flexGramGiftTimer
         self.isInForegroundValue = true
         self.isInForegroundPromise.set(true)
         self.isActiveValue = true

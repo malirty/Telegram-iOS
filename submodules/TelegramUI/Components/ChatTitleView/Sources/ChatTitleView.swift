@@ -1,4 +1,5 @@
 import Foundation
+import FlexGram
 import UIKit
 import AsyncDisplayKit
 import Display
@@ -296,10 +297,12 @@ public final class ChatTitleView: UIView, NavigationBarTitleView {
                                 } else if peerView.peerId.isAnonymousSavedMessages {
                                     segments = [.text(0, NSAttributedString(string: self.strings.ChatList_AuthorHidden, font: titleFont, textColor: titleTheme.rootController.navigationBar.primaryTextColor))]
                                 } else {
-                                    if !peerView.isContact, let user = peer as? TelegramUser, !user.flags.contains(.isSupport), user.botInfo == nil, let phone = user.phone, !phone.isEmpty {
-                                        segments = [.text(0, NSAttributedString(string: formatPhoneNumber(context: self.context, number: phone), font: titleFont, textColor: titleTheme.rootController.navigationBar.primaryTextColor))]
+                                    if let localTitle = FlexGramOverrides.name(accountId: self.context.account.peerId.toInt64(), peerId: peer.id.toInt64()) {
+                                        segments = [.text(0, NSAttributedString(string: FlexGramOverrides.titleWithChatBadge(localTitle, accountId: self.context.account.peerId.toInt64(), peerId: peer.id.toInt64()), font: titleFont, textColor: titleTheme.rootController.navigationBar.primaryTextColor))]
+                                    } else if !peerView.isContact, let user = peer as? TelegramUser, !user.flags.contains(.isSupport), user.botInfo == nil, let phone = user.phone, !phone.isEmpty {
+                                        segments = [.text(0, NSAttributedString(string: FlexGramOverrides.titleWithChatBadge(formatPhoneNumber(context: self.context, number: phone), accountId: self.context.account.peerId.toInt64(), peerId: peer.id.toInt64()), font: titleFont, textColor: titleTheme.rootController.navigationBar.primaryTextColor))]
                                     } else {
-                                        segments = [.text(0, NSAttributedString(string: EnginePeer(peer).displayTitle(strings: self.strings, displayOrder: self.nameDisplayOrder), font: titleFont, textColor: titleTheme.rootController.navigationBar.primaryTextColor))]
+                                        segments = [.text(0, NSAttributedString(string: FlexGramOverrides.titleWithChatBadge(EnginePeer(peer).displayTitle(strings: self.strings, displayOrder: self.nameDisplayOrder), accountId: self.context.account.peerId.toInt64(), peerId: peer.id.toInt64()), font: titleFont, textColor: titleTheme.rootController.navigationBar.primaryTextColor))]
                                     }
                                 }
                                 if peer.id != self.context.account.peerId {

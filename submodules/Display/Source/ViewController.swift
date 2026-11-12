@@ -175,6 +175,7 @@ public protocol CustomViewControllerNavigationDataSummary: AnyObject {
     public var presentationArguments: Any?
     
     public var tabBarItemDebugTapAction: (() -> Void)?
+    public var tabBarItemTripleTapAction: (() -> Void)?
     
     public private(set) var modalStyleOverlayTransitionFactor: CGFloat = 0.0
     public var modalStyleOverlayTransitionFactorUpdated: ((ContainedViewLayoutTransition) -> Void)?

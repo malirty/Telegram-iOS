@@ -44,6 +44,7 @@ import PlainButtonComponent
 import BundleIconComponent
 import MarqueeComponent
 import EdgeEffect
+import FlexGram
 
 final class PeerInfoHeaderRegularContentNode: SparseNode {
 }
@@ -1250,6 +1251,12 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                 title = threadData.info.title
             } else {
                 title = peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+            }
+            if (self.isSettings || self.isMyProfile), peer.id == self.context.account.peerId, let localName = FlexGramLocalSettings.profileDisplayNameOverride {
+                title = localName
+            }
+            if let localName = FlexGramOverrides.name(accountId: self.context.account.peerId.toInt64(), peerId: peer.id.toInt64()) {
+                title = localName
             }
             title = title.replacingOccurrences(of: "\u{1160}", with: "").replacingOccurrences(of: "\u{3164}", with: "")
             if title.replacingOccurrences(of: "\u{fe0e}", with: "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

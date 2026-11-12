@@ -47,6 +47,7 @@ class BazelCommandLine:
         self.show_actions = False
         self.enable_sandbox = False
         self.disable_provisioning_profiles = False
+        self.disable_extensions = False
         self.profile_swift = False
         self.embed_watch_app = False
         self.watch_api_id = None
@@ -141,6 +142,9 @@ class BazelCommandLine:
 
     def set_disable_provisioning_profiles(self):
         self.disable_provisioning_profiles = True
+
+    def set_disable_extensions(self):
+        self.disable_extensions = True
 
     def set_profile_swift(self, value):
         self.profile_swift = value
@@ -302,6 +306,8 @@ class BazelCommandLine:
 
         if self.disable_provisioning_profiles:
             combined_arguments += ['--//Telegram:disableProvisioningProfiles']
+        if self.disable_extensions:
+            combined_arguments += ['--//Telegram:disableExtensions']
 
         combined_arguments += self.common_args
         combined_arguments += self.common_build_args
@@ -426,10 +432,15 @@ def resolve_codesigning(arguments, base_path, build_configuration, provisioning_
             always_fetch=not arguments.gitCodesigningUseCurrent
         )
     elif arguments.codesigningInformationPath is not None:
+        allow_unmatched_profiles = (
+            getattr(arguments, 'allowMissingApsEnvironment', False)
+            and os.path.normpath(arguments.codesigningInformationPath).endswith(os.path.normpath('build-system/fake-codesigning'))
+        )
         profile_source = DirectoryCodesigningSource(
             directory_path=arguments.codesigningInformationPath,
             team_id=build_configuration.team_id,
-            bundle_id=build_configuration.bundle_id
+            bundle_id=build_configuration.bundle_id,
+            allow_unmatched_profiles=allow_unmatched_profiles
         )
     elif arguments.xcodeManagedCodesigning is not None and arguments.xcodeManagedCodesigning == True:
         profile_source = XcodeManagedCodesigningSource()
@@ -481,8 +492,12 @@ def resolve_configuration(base_path, bazel_command_line: BazelCommandLine, argum
         additional_codesigning_output_path=additional_codesigning_output_path
     )
     if codesigning_data.aps_environment is None:
-        print('Could not find a valid aps-environment entitlement in the provided provisioning profiles')
-        sys.exit(1)
+        if getattr(arguments, 'allowMissingApsEnvironment', False):
+            print('No matching provisioning profile; building without aps-environment for later local signing')
+            codesigning_data.aps_environment = ''
+        else:
+            print('Could not find a valid aps-environment entitlement in the provided provisioning profiles')
+            sys.exit(1)
 
     if bazel_command_line is not None:
         build_configuration.write_to_variables_file(bazel_path=bazel_command_line.bazel, use_xcode_managed_codesigning=codesigning_data.use_xcode_managed_codesigning, aps_environment=codesigning_data.aps_environment, path=configuration_repository_path + '/variables.bzl')
@@ -650,6 +665,10 @@ def build(bazel, arguments):
     bazel_command_line.set_show_actions(arguments.showActions)
     bazel_command_line.set_enable_sandbox(arguments.sandbox)
     bazel_command_line.set_profile_swift(arguments.profileSwift)
+    if arguments.disableProvisioningProfiles:
+        bazel_command_line.set_disable_provisioning_profiles()
+    if arguments.disableExtensions:
+        bazel_command_line.set_disable_extensions()
 
     bazel_command_line.set_split_swiftmodules(arguments.enableParallelSwiftmoduleGeneration)
 
@@ -845,6 +864,13 @@ def add_codesigning_common_arguments(current_parser: argparse.ArgumentParser):
     )
 
     current_parser.add_argument(
+        '--allowMissingApsEnvironment',
+        action='store_true',
+        default=False,
+        help='Allow unsigned builds without a matching push-notification provisioning profile; sign locally later.'
+    )
+
+    current_parser.add_argument(
         '--gitCodesigningType',
         choices=[
             'development',
@@ -1025,6 +1051,18 @@ if __name__ == '__main__':
         metavar='number'
     )
     add_project_and_build_common_arguments(buildParser)
+    buildParser.add_argument(
+        '--disableProvisioningProfiles',
+        action='store_true',
+        default=False,
+        help='Build an unsigned device app without provisioning profiles so it can be signed later.'
+    )
+    buildParser.add_argument(
+        '--disableExtensions',
+        action='store_true',
+        default=False,
+        help='Omit iOS app extensions, which require provisioning profiles for device builds.'
+    )
     buildParser.add_argument(
         '--configuration',
         choices=[

@@ -39,6 +39,7 @@ import ChatMessageBubbleItemNode
 import AdsInfoScreen
 import AdsReportScreen
 import WalletContext
+import FlexGram
  
 private struct MessageContextMenuData {
     let starStatus: Bool?
@@ -1645,6 +1646,16 @@ func contextMenuForChatPresentationInterfaceState(chatPresentationInterfaceState
                         f(.custom(transition))
                     })
                 }
+            })))
+        }
+
+        if messages.count == 1 && !message.text.isEmpty {
+            actions.append(.action(ContextMenuActionItem(text: "Флекс · изменить локально", icon: { theme in
+                return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Edit"), color: theme.actionSheet.primaryTextColor)
+            }, action: { c, _ in
+                c?.dismiss(completion: {
+                    (interfaceInteraction.chatController() as? ChatControllerImpl)?.push(FlexGramMessageScreen(context: context, messageId: message.id.description, originalText: message.text))
+                })
             })))
         }
         

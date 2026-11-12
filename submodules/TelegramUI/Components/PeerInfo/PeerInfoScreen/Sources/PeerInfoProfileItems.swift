@@ -16,6 +16,8 @@ import WebUI
 import AvatarNode
 import PeerNameColorItem
 import BoostLevelIconComponent
+import FlexGram
+import FlexGramUI
 
 private let enabledPublicBioEntities: EnabledEntityTypes = [.allUrl, .mention, .hashtag]
 private let enabledPrivateBioEntities: EnabledEntityTypes = [.internalUrl, .mention, .hashtag]
@@ -97,6 +99,32 @@ func infoItems(
     }
     
     if case let .user(user) = data.peer {
+        let localGifts = FlexGramOverrides.gifts(accountId: context.account.peerId.toInt64(), peerId: user.id.toInt64())
+        items[.peerInfo]!.append(PeerInfoScreenDisclosureItem(id: AnyHashable("flexgram_peer"), label: .text(localGifts.isEmpty ? "" : "\(localGifts.count) 🎁"), text: "VisualGram · профиль и подарки", icon: nil, action: {
+            guard let controller = interaction.getController() else { return }
+            controller.push(FlexGramPeerScreen(context: context, peerId: user.id.toInt64(), peerTitle: EnginePeer(user).displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)))
+        }))
+        if !localGifts.isEmpty {
+            items[.peerInfo]!.append(PeerInfoScreenFlexGramGiftsItem(id: AnyHashable("flexgram_gifts"), gifts: localGifts))
+        }
+        let localFields: [(FlexGramProfileField, String)] = [
+            (.bio, "Локально · О себе"),
+            (.businessGreeting, "Локально · Приветствие"),
+            (.businessHours, "Локально · Время работы"),
+            (.businessLocation, "Локально · Адрес")
+        ]
+        for (field, label) in localFields {
+            if let value = FlexGramOverrides.profileField(field, accountId: context.account.peerId.toInt64(), peerId: user.id.toInt64()) {
+                items[.peerInfo]!.append(PeerInfoScreenLabeledValueItem(
+                    id: AnyHashable("visualgram_\(field.rawValue)"),
+                    label: label,
+                    text: value,
+                    textBehavior: .multiLine(maxLines: 3, enabledEntities: []),
+                    action: nil,
+                    requestLayout: { _ in }
+                ))
+            }
+        }
         let ItemCallList = 1000
         let ItemPersonalChannelHeader = 2000
         let ItemPersonalChannel = 2001

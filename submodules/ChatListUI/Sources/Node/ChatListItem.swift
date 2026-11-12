@@ -1,4 +1,5 @@
 import Foundation
+import FlexGram
 import UIKit
 import AsyncDisplayKit
 import Display
@@ -3289,10 +3290,14 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                                 } else {
                                     textColor = theme.titleColor
                                 }
-                                titleAttributedString = NSAttributedString(string: displayTitle, font: titleFont, textColor: textColor)
+                                let localTitle = itemPeer.chatOrMonoforumMainPeer.flatMap { FlexGramOverrides.name(accountId: item.context.account.peerId.toInt64(), peerId: $0.id.toInt64()) }
+                                titleAttributedString = NSAttributedString(string: localTitle ?? displayTitle, font: titleFont, textColor: textColor)
                                 
                                 if case let .channel(channel) = itemPeer.peer, channel.flags.contains(.isMonoforum) {
                                     titleBadgeText = item.presentationData.strings.ChatList_MonoforumLabel
+                                }
+                                if titleBadgeText == nil {
+                                    titleBadgeText = itemPeer.chatOrMonoforumMainPeer.flatMap { FlexGramOverrides.chatBadge(accountId: item.context.account.peerId.toInt64(), peerId: $0.id.toInt64()) }
                                 }
                             }
                         }
@@ -3322,7 +3327,11 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         if case let .channel(channel) = itemPeer.peer, channel.flags.contains(.isMonoforum) {
                             titleBadgeText = item.presentationData.strings.ChatList_MonoforumLabel
                         }
-                        titleAttributedString = NSAttributedString(string: displayTitle, font: titleFont, textColor: textColor)
+                        if titleBadgeText == nil {
+                            titleBadgeText = itemPeer.chatOrMonoforumMainPeer.flatMap { FlexGramOverrides.chatBadge(accountId: item.context.account.peerId.toInt64(), peerId: $0.id.toInt64()) }
+                        }
+                        let localTitle = itemPeer.chatOrMonoforumMainPeer.flatMap { FlexGramOverrides.name(accountId: item.context.account.peerId.toInt64(), peerId: $0.id.toInt64()) }
+                        titleAttributedString = NSAttributedString(string: localTitle ?? displayTitle, font: titleFont, textColor: textColor)
                     }
                 case .group:
                     titleAttributedString = NSAttributedString(string: item.presentationData.strings.ChatList_ArchivedChatsTitle, font: titleFont, textColor: theme.titleColor)

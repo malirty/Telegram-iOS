@@ -1,0 +1,491 @@
+import Foundation
+import UIKit
+import AsyncDisplayKit
+import Display
+import TelegramPresentationData
+import AccountContext
+import FlexGram
+
+/// A local-only wallet and entry point for profile editing and gift copies.
+public final class FlexGramScreen: ViewController {
+    private final class Node: ViewControllerTracingNode {
+        private let accountId: Int64
+        private let presentationData: PresentationData
+        private let walletArtwork: FlexGramGiftArtView
+        private let walletArtContainer = UIView()
+        private let walletHint = UILabel()
+        private let walletGiftButton = UIButton(type: .system)
+        private let walletEditor = UIStackView()
+        private let walletXSlider = UISlider()
+        private let walletYSlider = UISlider()
+        private let walletScaleSlider = UISlider()
+        private let scrollView = UIScrollView()
+        private let stack = UIStackView()
+        private let starsLabel = UILabel()
+        private let tonLabel = UILabel()
+        private let gramLabel = UILabel()
+        private let nameField = UITextField()
+        private let authorField = UITextField()
+        private let sharedSwitch = UISwitch()
+        private let profileNote = UILabel()
+        private var historyCard: UIStackView?
+        var onEditStars: (() -> Void)?
+        var onEditTon: (() -> Void)?
+        var onEditGram: (() -> Void)?
+        var onOpenMyProfile: (() -> Void)?
+
+        init(context: AccountContext, presentationData: PresentationData) {
+            self.accountId = context.account.peerId.toInt64()
+            self.presentationData = presentationData
+            self.walletArtwork = FlexGramGiftArtView(context: context)
+            super.init()
+            let colors = presentationData.theme.list
+            self.backgroundColor = colors.plainBackgroundColor
+            self.scrollView.alwaysBounceVertical = true
+            self.scrollView.keyboardDismissMode = .interactive
+            self.stack.axis = .vertical
+            self.stack.spacing = 18.0
+            self.stack.isLayoutMarginsRelativeArrangement = true
+            self.stack.layoutMargins = UIEdgeInsets(top: 20.0, left: 16.0, bottom: 32.0, right: 16.0)
+
+            let titleLabel = UILabel()
+            titleLabel.text = "VisualGram"
+            titleLabel.font = .systemFont(ofSize: 30.0, weight: .bold)
+            titleLabel.textColor = colors.itemPrimaryTextColor
+            self.stack.addArrangedSubview(titleLabel)
+            self.addDescription("Локальные настройки профиля, подарков и виртуального баланса. Они видны только в этом приложении.")
+
+            self.addSectionTitle("ВИРТУАЛЬНЫЙ БАЛАНС")
+            let walletCard = self.makeGroup()
+            self.walletArtContainer.heightAnchor.constraint(equalToConstant: 150.0).isActive = true
+            self.walletArtContainer.clipsToBounds = true
+            self.walletArtwork.translatesAutoresizingMaskIntoConstraints = false
+            self.walletArtwork.isUserInteractionEnabled = false
+            self.walletArtContainer.addSubview(self.walletArtwork)
+            NSLayoutConstraint.activate([
+                self.walletArtwork.centerXAnchor.constraint(equalTo: self.walletArtContainer.centerXAnchor),
+                self.walletArtwork.centerYAnchor.constraint(equalTo: self.walletArtContainer.centerYAnchor),
+                self.walletArtwork.widthAnchor.constraint(equalToConstant: 104.0),
+                self.walletArtwork.heightAnchor.constraint(equalToConstant: 104.0)
+            ])
+            walletCard.addArrangedSubview(self.walletArtContainer)
+            self.walletHint.font = .systemFont(ofSize: 14.0)
+            self.walletHint.textColor = colors.itemSecondaryTextColor
+            self.walletHint.textAlignment = .center
+            self.walletHint.numberOfLines = 0
+            walletCard.addArrangedSubview(self.walletHint)
+            self.walletGiftButton.setTitleColor(colors.itemAccentColor, for: .normal)
+            self.walletGiftButton.addTarget(self, action: #selector(self.walletButtonPressed), for: .touchUpInside)
+            self.walletGiftButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 40.0).isActive = true
+            walletCard.addArrangedSubview(self.walletGiftButton)
+            self.walletEditor.axis = .vertical
+            self.walletEditor.spacing = 8.0
+            let layoutTitle = UILabel()
+            layoutTitle.text = "Размещение изображения карты"
+            layoutTitle.font = .systemFont(ofSize: 14.0, weight: .semibold)
+            layoutTitle.textColor = colors.itemPrimaryTextColor
+            self.walletEditor.addArrangedSubview(layoutTitle)
+            self.walletEditor.addArrangedSubview(self.makeLayoutSlider("По X", slider: self.walletXSlider, minimum: -50.0, maximum: 50.0))
+            self.walletEditor.addArrangedSubview(self.makeLayoutSlider("По Y", slider: self.walletYSlider, minimum: -20.0, maximum: 20.0))
+            self.walletEditor.addArrangedSubview(self.makeLayoutSlider("Размер", slider: self.walletScaleSlider, minimum: 0.6, maximum: 1.4))
+            let resetLayout = UIButton(type: .system)
+            resetLayout.setTitle("Сбросить размещение", for: .normal)
+            resetLayout.setTitleColor(colors.itemAccentColor, for: .normal)
+            resetLayout.contentHorizontalAlignment = .left
+            resetLayout.addTarget(self, action: #selector(self.resetWalletLayout), for: .touchUpInside)
+            resetLayout.heightAnchor.constraint(greaterThanOrEqualToConstant: 40.0).isActive = true
+            self.walletEditor.addArrangedSubview(resetLayout)
+            walletCard.addArrangedSubview(self.walletEditor)
+            let starsRow = self.makeBalanceRow(symbol: "star.fill", valueLabel: self.starsLabel, decrement: #selector(self.decreaseStars), increment: #selector(self.increaseStars), edit: #selector(self.editStars))
+            walletCard.addArrangedSubview(starsRow)
+            walletCard.addArrangedSubview(self.separator())
+            let tonRow = self.makeBalanceRow(symbol: "diamond.fill", valueLabel: self.tonLabel, decrement: #selector(self.decreaseTon), increment: #selector(self.increaseTon), edit: #selector(self.editTon))
+            walletCard.addArrangedSubview(tonRow)
+            walletCard.addArrangedSubview(self.separator())
+            let gramRow = self.makeBalanceRow(symbol: "circle.hexagongrid.fill", valueLabel: self.gramLabel, decrement: #selector(self.decreaseGram), increment: #selector(self.increaseGram), edit: #selector(self.editGram))
+            walletCard.addArrangedSubview(gramRow)
+            self.stack.addArrangedSubview(walletCard)
+            self.addDescription("Нажмите на сумму, чтобы задать любое значение. При локальном подарке списываются 100 виртуальных Stars. Настоящий баланс Telegram не меняется.")
+
+            self.addSectionTitle("ЛОКАЛЬНАЯ ИСТОРИЯ")
+            let historyCard = self.makeGroup()
+            self.historyCard = historyCard
+            self.stack.addArrangedSubview(historyCard)
+
+            self.addSectionTitle("ЛОКАЛЬНЫЙ ПРОФИЛЬ")
+            let profileCard = self.makeGroup()
+            self.configureField(self.nameField, placeholder: "Имя в моём профиле", text: FlexGramLocalSettings.profileDisplayNameOverride)
+            self.configureField(self.authorField, placeholder: "Подпись автора в сообщениях", text: FlexGramLocalSettings.outgoingAuthorNameOverride)
+            self.nameField.addTarget(self, action: #selector(self.profileChanged), for: .editingChanged)
+            self.authorField.addTarget(self, action: #selector(self.authorChanged), for: .editingChanged)
+            profileCard.addArrangedSubview(self.nameField)
+            profileCard.addArrangedSubview(self.authorField)
+            let sharedRow = UIStackView()
+            sharedRow.axis = .horizontal
+            sharedRow.alignment = .center
+            sharedRow.spacing = 12.0
+            let sharedLabel = UILabel()
+            sharedLabel.text = "Общий вид между аккаунтами"
+            sharedLabel.font = .systemFont(ofSize: 15.0)
+            sharedLabel.textColor = colors.itemPrimaryTextColor
+            sharedLabel.numberOfLines = 0
+            sharedRow.addArrangedSubview(sharedLabel)
+            self.sharedSwitch.isOn = FlexGramOverrides.sharedAppearance
+            let layout = FlexGramOverrides.walletCardLayout(accountId: self.accountId)
+            self.walletXSlider.value = Float(layout.x)
+            self.walletYSlider.value = Float(layout.y)
+            self.walletScaleSlider.value = Float(layout.scale)
+            self.sharedSwitch.onTintColor = colors.itemAccentColor
+            self.sharedSwitch.addTarget(self, action: #selector(self.sharedChanged), for: .valueChanged)
+            sharedRow.addArrangedSubview(self.sharedSwitch)
+            profileCard.addArrangedSubview(sharedRow)
+            self.profileNote.text = "При общем виде новые имена, аватары, значки и подарки видны во всех аккаунтах на этом iPhone. Изменения появятся после повторного открытия экрана."
+            self.profileNote.font = .systemFont(ofSize: 13.0)
+            self.profileNote.textColor = colors.itemSecondaryTextColor
+            self.profileNote.numberOfLines = 0
+            profileCard.addArrangedSubview(self.profileNote)
+            profileCard.addArrangedSubview(self.makePrimaryButton("Открыть мои локальные подарки", action: #selector(self.openMyProfile)))
+            self.stack.addArrangedSubview(profileCard)
+
+            self.addSectionTitle("КАК ЭТО РАБОТАЕТ")
+            let infoCard = self.makeGroup()
+            let info = UILabel()
+            info.text = "Выберите изображение из каталога Telegram в локальном профиле. Подарок появится только в этом приложении и не будет доставлен другому человеку. Реальных платежей нет."
+            info.font = .systemFont(ofSize: 14.0)
+            info.textColor = colors.itemSecondaryTextColor
+            info.numberOfLines = 0
+            infoCard.addArrangedSubview(info)
+            self.stack.addArrangedSubview(infoCard)
+            self.refreshValues()
+        }
+
+        override func didLoad() {
+            super.didLoad()
+            self.view.addSubview(self.scrollView)
+            self.stack.translatesAutoresizingMaskIntoConstraints = false
+            self.scrollView.addSubview(self.stack)
+            NSLayoutConstraint.activate([
+                self.stack.leadingAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.leadingAnchor),
+                self.stack.trailingAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.trailingAnchor),
+                self.stack.topAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.topAnchor),
+                self.stack.bottomAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.bottomAnchor),
+                self.stack.widthAnchor.constraint(equalTo: self.scrollView.frameLayoutGuide.widthAnchor)
+            ])
+        }
+
+        func updateLayout(size: CGSize, navigationHeight: CGFloat) {
+            self.scrollView.frame = CGRect(x: 0.0, y: navigationHeight, width: size.width, height: max(0.0, size.height - navigationHeight))
+        }
+
+        func refreshValues() {
+            self.starsLabel.text = "\(FlexGramOverrides.virtualStars) Stars"
+            self.tonLabel.text = "\(String(format: "%.2f", FlexGramOverrides.virtualTon)) TON"
+            self.gramLabel.text = "\(String(format: "%.2f", FlexGramOverrides.virtualGram)) GRAM"
+            self.sharedSwitch.isOn = FlexGramOverrides.sharedAppearance
+            let layout = FlexGramOverrides.walletCardLayout(accountId: self.accountId)
+            self.walletXSlider.value = Float(layout.x)
+            self.walletYSlider.value = Float(layout.y)
+            self.walletScaleSlider.value = Float(layout.scale)
+            self.refreshWalletArtwork()
+            self.refreshHistory()
+        }
+
+        private func refreshWalletArtwork() {
+            let gifts = FlexGramOverrides.gifts(accountId: self.accountId, peerId: self.accountId)
+            guard !gifts.isEmpty else {
+                self.walletArtContainer.isHidden = true
+                self.walletEditor.isHidden = true
+                self.walletHint.text = "Локальная карта без изображения подарка"
+                self.walletGiftButton.setTitle("Открыть мои подарки", for: .normal)
+                return
+            }
+            let selectedId = FlexGramOverrides.walletCardGiftId(accountId: self.accountId)
+            let selected = gifts.first(where: { $0.localId == selectedId && selectedId != nil }) ?? gifts[gifts.count - 1]
+            self.walletArtContainer.isHidden = false
+            self.walletEditor.isHidden = false
+            self.walletArtwork.setGift(selected, presentationData: self.presentationData)
+            let layout = FlexGramOverrides.walletCardLayout(accountId: self.accountId)
+            self.walletArtwork.transform = CGAffineTransform(translationX: CGFloat(layout.x), y: CGFloat(layout.y)).scaledBy(x: CGFloat(layout.scale), y: CGFloat(layout.scale))
+            self.walletHint.text = "Локальная карта · \(selected.kind)"
+            self.walletGiftButton.setTitle("Сменить изображение карты", for: .normal)
+        }
+
+        private func refreshHistory() {
+            guard let historyCard = self.historyCard else { return }
+            historyCard.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            let entries = FlexGramOverrides.balanceHistory
+            if entries.isEmpty {
+                let label = UILabel()
+                label.text = "Изменения баланса и подарки появятся здесь"
+                label.font = .systemFont(ofSize: 14.0)
+                label.textColor = self.presentationData.theme.list.itemSecondaryTextColor
+                label.numberOfLines = 0
+                historyCard.addArrangedSubview(label)
+                return
+            }
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateStyle = .short
+            dateFormatter.timeStyle = .short
+            for (index, entry) in entries.enumerated() {
+                if index > 0 { historyCard.addArrangedSubview(self.separator()) }
+                let row = UIStackView()
+                row.axis = .horizontal
+                row.spacing = 8.0
+                let details = UILabel()
+                details.numberOfLines = 2
+                details.text = "\(entry.title)\n\(dateFormatter.string(from: entry.date))"
+                details.font = .systemFont(ofSize: 14.0)
+                details.textColor = self.presentationData.theme.list.itemPrimaryTextColor
+                row.addArrangedSubview(details)
+                let amount = UILabel()
+                switch entry.currency {
+                case .stars: amount.text = String(format: "%+.0f ★", entry.change)
+                case .ton: amount.text = String(format: "%+.2f TON", entry.change)
+                case .gram: amount.text = String(format: "%+.2f GRAM", entry.change)
+                }
+                amount.font = .monospacedDigitSystemFont(ofSize: 14.0, weight: .semibold)
+                amount.textColor = self.presentationData.theme.list.itemSecondaryTextColor
+                amount.setContentCompressionResistancePriority(.required, for: .horizontal)
+                row.addArrangedSubview(amount)
+                historyCard.addArrangedSubview(row)
+            }
+        }
+
+        private func makeGroup() -> UIStackView {
+            let group = UIStackView()
+            group.axis = .vertical
+            group.spacing = 12.0
+            group.isLayoutMarginsRelativeArrangement = true
+            group.layoutMargins = UIEdgeInsets(top: 16.0, left: 16.0, bottom: 16.0, right: 16.0)
+            group.backgroundColor = self.presentationData.theme.list.itemBlocksBackgroundColor
+            group.layer.cornerRadius = 14.0
+            return group
+        }
+
+        private func addSectionTitle(_ text: String) {
+            let label = UILabel()
+            label.text = text
+            label.font = .systemFont(ofSize: 13.0, weight: .semibold)
+            label.textColor = self.presentationData.theme.list.itemSecondaryTextColor
+            label.numberOfLines = 0
+            self.stack.addArrangedSubview(label)
+        }
+
+        private func addDescription(_ text: String) {
+            let label = UILabel()
+            label.text = text
+            label.font = .systemFont(ofSize: 14.0)
+            label.textColor = self.presentationData.theme.list.itemSecondaryTextColor
+            label.numberOfLines = 0
+            self.stack.addArrangedSubview(label)
+        }
+
+        private func separator() -> UIView {
+            let line = UIView()
+            line.backgroundColor = self.presentationData.theme.list.itemBlocksSeparatorColor
+            line.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
+            return line
+        }
+
+        private func makeBalanceRow(symbol: String, valueLabel: UILabel, decrement: Selector, increment: Selector, edit: Selector) -> UIView {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.spacing = 8.0
+            row.alignment = .center
+            let icon = UIImageView(image: UIImage(systemName: symbol))
+            icon.tintColor = self.presentationData.theme.list.itemAccentColor
+            icon.contentMode = .scaleAspectFit
+            icon.widthAnchor.constraint(equalToConstant: 28.0).isActive = true
+            icon.heightAnchor.constraint(equalToConstant: 28.0).isActive = true
+            row.addArrangedSubview(icon)
+            valueLabel.font = .systemFont(ofSize: 20.0, weight: .semibold)
+            valueLabel.textColor = self.presentationData.theme.list.itemPrimaryTextColor
+            valueLabel.adjustsFontSizeToFitWidth = true
+            valueLabel.minimumScaleFactor = 0.75
+            let amountButton = UIButton(type: .system)
+            amountButton.contentHorizontalAlignment = .left
+            amountButton.addSubview(valueLabel)
+            valueLabel.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                valueLabel.leadingAnchor.constraint(equalTo: amountButton.leadingAnchor),
+                valueLabel.trailingAnchor.constraint(equalTo: amountButton.trailingAnchor),
+                valueLabel.topAnchor.constraint(equalTo: amountButton.topAnchor),
+                valueLabel.bottomAnchor.constraint(equalTo: amountButton.bottomAnchor)
+            ])
+            amountButton.addTarget(self, action: edit, for: .touchUpInside)
+            amountButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44.0).isActive = true
+            row.addArrangedSubview(amountButton)
+            row.addArrangedSubview(self.makeStepButton("−", action: decrement))
+            row.addArrangedSubview(self.makeStepButton("+", action: increment))
+            return row
+        }
+
+        private func makeStepButton(_ title: String, action: Selector) -> UIButton {
+            let button = UIButton(type: .system)
+            button.setTitle(title, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 23.0, weight: .medium)
+            button.setTitleColor(self.presentationData.theme.list.itemAccentColor, for: .normal)
+            button.backgroundColor = self.presentationData.theme.list.plainBackgroundColor
+            button.layer.cornerRadius = 10.0
+            button.widthAnchor.constraint(equalToConstant: 44.0).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 44.0).isActive = true
+            button.addTarget(self, action: action, for: .touchUpInside)
+            return button
+        }
+
+        private func makeLayoutSlider(_ title: String, slider: UISlider, minimum: Float, maximum: Float) -> UIView {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.alignment = .center
+            row.spacing = 8.0
+            let label = UILabel()
+            label.text = title
+            label.font = .systemFont(ofSize: 13.0)
+            label.textColor = self.presentationData.theme.list.itemSecondaryTextColor
+            label.widthAnchor.constraint(equalToConstant: 56.0).isActive = true
+            row.addArrangedSubview(label)
+            slider.minimumValue = minimum
+            slider.maximumValue = maximum
+            slider.tintColor = self.presentationData.theme.list.itemAccentColor
+            slider.addTarget(self, action: #selector(self.walletLayoutChanged), for: .valueChanged)
+            row.addArrangedSubview(slider)
+            return row
+        }
+
+        private func makePrimaryButton(_ title: String, action: Selector) -> UIButton {
+            let button = UIButton(type: .system)
+            var configuration = UIButton.Configuration.filled()
+            configuration.title = title
+            configuration.baseForegroundColor = .white
+            configuration.baseBackgroundColor = self.presentationData.theme.list.itemAccentColor
+            configuration.cornerStyle = .medium
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 11.0, leading: 12.0, bottom: 11.0, trailing: 12.0)
+            button.configuration = configuration
+            button.titleLabel?.numberOfLines = 0
+            button.addTarget(self, action: action, for: .touchUpInside)
+            return button
+        }
+
+        private func configureField(_ field: UITextField, placeholder: String, text: String?) {
+            field.text = text
+            field.placeholder = placeholder
+            field.textColor = self.presentationData.theme.list.itemPrimaryTextColor
+            field.tintColor = self.presentationData.theme.list.itemAccentColor
+            field.backgroundColor = self.presentationData.theme.list.plainBackgroundColor
+            field.layer.cornerRadius = 10.0
+            field.leftView = UIView(frame: CGRect(x: 0.0, y: 0.0, width: 12.0, height: 1.0))
+            field.leftViewMode = .always
+            field.heightAnchor.constraint(equalToConstant: 46.0).isActive = true
+        }
+
+        @objc private func increaseStars() {
+            let current = min(1_000_000_000, FlexGramOverrides.virtualStars)
+            FlexGramOverrides.virtualStars = min(1_000_000_000, current + 100)
+            self.refreshValues()
+        }
+        @objc private func decreaseStars() { FlexGramOverrides.virtualStars = max(0, FlexGramOverrides.virtualStars - 100); self.refreshValues() }
+        @objc private func increaseTon() { FlexGramOverrides.virtualTon += 1.0; self.refreshValues() }
+        @objc private func decreaseTon() { FlexGramOverrides.virtualTon = max(0.0, FlexGramOverrides.virtualTon - 1.0); self.refreshValues() }
+        @objc private func editStars() { self.onEditStars?() }
+        @objc private func editTon() { self.onEditTon?() }
+        @objc private func increaseGram() { FlexGramOverrides.virtualGram += 1.0; self.refreshValues() }
+        @objc private func decreaseGram() { FlexGramOverrides.virtualGram = max(0.0, FlexGramOverrides.virtualGram - 1.0); self.refreshValues() }
+        @objc private func editGram() { self.onEditGram?() }
+        @objc private func openMyProfile() { self.onOpenMyProfile?() }
+        @objc private func profileChanged() { FlexGramLocalSettings.profileDisplayNameOverride = self.nameField.text }
+        @objc private func authorChanged() { FlexGramLocalSettings.outgoingAuthorNameOverride = self.authorField.text }
+        @objc private func sharedChanged() { FlexGramOverrides.sharedAppearance = self.sharedSwitch.isOn; self.refreshValues() }
+
+        @objc private func walletLayoutChanged() {
+            let layout = FlexGramWalletCardLayout(x: Double(self.walletXSlider.value), y: Double(self.walletYSlider.value), scale: Double(self.walletScaleSlider.value))
+            FlexGramOverrides.setWalletCardLayout(layout, accountId: self.accountId)
+            self.walletArtwork.transform = CGAffineTransform(translationX: CGFloat(layout.x), y: CGFloat(layout.y)).scaledBy(x: CGFloat(layout.scale), y: CGFloat(layout.scale))
+        }
+
+        @objc private func resetWalletLayout() {
+            FlexGramOverrides.setWalletCardLayout(FlexGramWalletCardLayout(), accountId: self.accountId)
+            self.refreshValues()
+        }
+        @objc private func walletButtonPressed() {
+            let gifts = FlexGramOverrides.gifts(accountId: self.accountId, peerId: self.accountId)
+            guard !gifts.isEmpty else { self.onOpenMyProfile?(); return }
+            let selectedId = FlexGramOverrides.walletCardGiftId(accountId: self.accountId)
+            let currentIndex = gifts.firstIndex(where: { $0.localId == selectedId && selectedId != nil }) ?? (gifts.count - 1)
+            let next = gifts[(currentIndex + 1) % gifts.count]
+            FlexGramOverrides.setWalletCardGiftId(next.localId, accountId: self.accountId)
+            self.refreshWalletArtwork()
+        }
+    }
+
+    private let context: AccountContext
+    private let presentationData: PresentationData
+
+    public init(context: AccountContext) {
+        self.context = context
+        self.presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        super.init(navigationBarPresentationData: NavigationBarPresentationData(presentationData: self.presentationData))
+        self.title = "VisualGram"
+    }
+
+    required init(coder aDecoder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    private var node: Node { self.displayNode as! Node }
+
+    override public func loadDisplayNode() {
+        let node = Node(context: self.context, presentationData: self.presentationData)
+        node.onEditStars = { [weak self] in self?.editBalance(currency: .stars) }
+        node.onEditTon = { [weak self] in self?.editBalance(currency: .ton) }
+        node.onEditGram = { [weak self] in self?.editBalance(currency: .gram) }
+        node.onOpenMyProfile = { [weak self] in
+            guard let self else { return }
+            self.push(FlexGramPeerScreen(context: self.context, peerId: self.context.account.peerId.toInt64(), peerTitle: "Мой профиль"))
+        }
+        self.displayNode = node
+        super.displayNodeDidLoad()
+    }
+
+    override public func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if self.isNodeLoaded { self.node.refreshValues() }
+    }
+
+    override public func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        super.containerLayoutUpdated(layout, transition: transition)
+        self.node.updateLayout(size: layout.size, navigationHeight: self.navigationLayout(layout: layout).navigationFrame.maxY)
+    }
+
+    private func editBalance(currency: FlexGramBalanceEntry.Currency) {
+        let title: String
+        let current: String
+        switch currency {
+        case .stars:
+            title = "Виртуальные Stars"
+            current = String(FlexGramOverrides.virtualStars)
+        case .ton:
+            title = "Виртуальные TON"
+            current = String(format: "%.2f", FlexGramOverrides.virtualTon)
+        case .gram:
+            title = "Виртуальные GRAM"
+            current = String(format: "%.2f", FlexGramOverrides.virtualGram)
+        }
+        let alert = UIAlertController(title: title, message: "Значение хранится только на этом устройстве.", preferredStyle: .alert)
+        alert.addTextField { field in
+            field.keyboardType = currency == .stars ? .numberPad : .decimalPad
+            field.text = current
+        }
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Сохранить", style: .default, handler: { [weak self, weak alert] _ in
+            guard let text = alert?.textFields?.first?.text else { return }
+            if currency == .stars {
+                if let value = Int(text), value >= 0 { FlexGramOverrides.virtualStars = value }
+            } else {
+                let normalized = text.replacingOccurrences(of: ",", with: ".")
+                if let value = Double(normalized), value.isFinite, value >= 0.0 {
+                    if currency == .ton { FlexGramOverrides.virtualTon = value }
+                    else { FlexGramOverrides.virtualGram = value }
+                }
+            }
+            self?.node.refreshValues()
+        }))
+        self.present(alert, animated: true)
+    }
+}

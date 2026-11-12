@@ -10,6 +10,8 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/FlexGram:FlexGram",
+        "//submodules/FlexGramUI:FlexGramUI",
         "//submodules/UrlWhitelist",
         "//submodules/TelegramUI/Components/NavigationBarNode",
         "//submodules/TelegramUI/Components/NavigationBarComponent",
