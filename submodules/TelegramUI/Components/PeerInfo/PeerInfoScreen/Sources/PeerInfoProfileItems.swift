@@ -108,6 +108,24 @@ func infoItems(
         if !localGifts.isEmpty {
             items[.peerInfo]!.append(PeerInfoScreenFlexGramGiftsItem(id: AnyHashable("flexgram_gifts"), gifts: localGifts))
         }
+        let localFields: [(FlexGramProfileField, String)] = [
+            (.bio, "Локально · О себе"),
+            (.businessGreeting, "Локально · Приветствие"),
+            (.businessHours, "Локально · Время работы"),
+            (.businessLocation, "Локально · Адрес")
+        ]
+        for (field, label) in localFields {
+            if let value = FlexGramOverrides.profileField(field, accountId: context.account.peerId.toInt64(), peerId: user.id.toInt64()) {
+                items[.peerInfo]!.append(PeerInfoScreenLabeledValueItem(
+                    id: AnyHashable("visualgram_\(field.rawValue)"),
+                    label: label,
+                    text: value,
+                    textBehavior: .multiLine(maxLines: 3, enabledEntities: []),
+                    action: nil,
+                    requestLayout: { _ in }
+                ))
+            }
+        }
         let ItemCallList = 1000
         let ItemPersonalChannelHeader = 2000
         let ItemPersonalChannel = 2001

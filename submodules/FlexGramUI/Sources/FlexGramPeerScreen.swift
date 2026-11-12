@@ -20,6 +20,10 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
         private let avatarView = UIImageView()
         private let nameField = UITextField()
         private let badgeField = UITextField()
+        private let bioField = UITextField()
+        private let greetingField = UITextField()
+        private let hoursField = UITextField()
+        private let locationField = UITextField()
         private let galleryScroll = UIScrollView()
         private let galleryStack = UIStackView()
         private let emptyGalleryLabel = UILabel()
@@ -60,6 +64,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
         private var catalogueUpdateDisposable: Disposable?
         private var attributesDisposable: Disposable?
         var onPickAvatar: (() -> Void)?
+        var onManageLists: (() -> Void)?
 
         init(context: AccountContext, peerId: Int64, title: String, presentationData: PresentationData) {
             self.context = context
@@ -122,7 +127,20 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             self.badgeField.heightAnchor.constraint(equalToConstant: 46.0).isActive = true
             self.badgeField.addTarget(self, action: #selector(self.badgeChanged), for: .editingChanged)
             identityCard.addArrangedSubview(self.badgeField)
+            identityCard.addArrangedSubview(self.makeTextButton("Имена и подарки · управление списками", action: #selector(self.manageLists)))
             self.stack.addArrangedSubview(identityCard)
+
+            self.addSectionTitle("ЛОКАЛЬНЫЙ ПРОФИЛЬ И БИЗНЕС")
+            let businessCard = self.makeGroup()
+            self.configureProfileField(self.bioField, field: .bio, tag: 0, placeholder: "О себе · локально")
+            self.configureProfileField(self.greetingField, field: .businessGreeting, tag: 1, placeholder: "Приветствие бизнеса · локально")
+            self.configureProfileField(self.hoursField, field: .businessHours, tag: 2, placeholder: "Время работы · локально")
+            self.configureProfileField(self.locationField, field: .businessLocation, tag: 3, placeholder: "Адрес бизнеса · локально")
+            businessCard.addArrangedSubview(self.bioField)
+            businessCard.addArrangedSubview(self.greetingField)
+            businessCard.addArrangedSubview(self.hoursField)
+            businessCard.addArrangedSubview(self.locationField)
+            self.stack.addArrangedSubview(businessCard)
 
             self.addSectionTitle("ПОДАРКИ В ПРОФИЛЕ")
             let galleryCard = self.makeGroup()
@@ -272,6 +290,8 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
         }
 
         func refreshLocalValues() {
+            if !self.nameField.isFirstResponder { self.nameField.text = FlexGramOverrides.name(accountId: self.accountId, peerId: self.peerId) }
+            if !self.badgeField.isFirstResponder { self.badgeField.text = FlexGramOverrides.chatBadge(accountId: self.accountId, peerId: self.peerId) }
             self.refreshGallery()
             self.refreshTransferGifts()
             self.refreshBalance()
@@ -328,6 +348,20 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             button.heightAnchor.constraint(greaterThanOrEqualToConstant: 40.0).isActive = true
             button.addTarget(self, action: action, for: .touchUpInside)
             return button
+        }
+
+        private func configureProfileField(_ fieldView: UITextField, field: FlexGramProfileField, tag: Int, placeholder: String) {
+            fieldView.tag = tag
+            fieldView.text = FlexGramOverrides.profileField(field, accountId: self.accountId, peerId: self.peerId)
+            fieldView.placeholder = placeholder
+            fieldView.textColor = self.presentationData.theme.list.itemPrimaryTextColor
+            fieldView.tintColor = self.presentationData.theme.list.itemAccentColor
+            fieldView.backgroundColor = self.presentationData.theme.list.plainBackgroundColor
+            fieldView.layer.cornerRadius = 10.0
+            fieldView.leftView = UIView(frame: CGRect(x: 0.0, y: 0.0, width: 12.0, height: 1.0))
+            fieldView.leftViewMode = .always
+            fieldView.heightAnchor.constraint(equalToConstant: 46.0).isActive = true
+            fieldView.addTarget(self, action: #selector(self.profileFieldChanged(_:)), for: .editingChanged)
         }
 
         private func makePrimaryButton(_ text: String, action: Selector) -> UIButton {
@@ -692,6 +726,20 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             FlexGramOverrides.setChatBadge(self.badgeField.text, accountId: self.accountId, peerId: self.peerId)
         }
 
+        @objc private func manageLists() { self.onManageLists?() }
+
+        @objc private func profileFieldChanged(_ sender: UITextField) {
+            let field: FlexGramProfileField
+            switch sender.tag {
+            case 0: field = .bio
+            case 1: field = .businessGreeting
+            case 2: field = .businessHours
+            case 3: field = .businessLocation
+            default: return
+            }
+            FlexGramOverrides.setProfileField(field, value: sender.text, accountId: self.accountId, peerId: self.peerId)
+        }
+
         @objc private func nextModel() {
             guard !self.models.isEmpty else { return }
             self.modelIndex = (self.modelIndex + 1) % self.models.count
@@ -786,6 +834,10 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
     override public func loadDisplayNode() {
         let node = Node(context: self.context, peerId: self.peerId, title: self.peerTitle, presentationData: self.presentationData)
         node.onPickAvatar = { [weak self] in self?.pickAvatar() }
+        node.onManageLists = { [weak self] in
+            guard let self else { return }
+            self.push(FlexGramManageListsScreen(context: self.context, peerId: self.peerId))
+        }
         self.displayNode = node
         super.displayNodeDidLoad()
     }

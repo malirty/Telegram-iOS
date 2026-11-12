@@ -59,6 +59,10 @@ public struct FlexGramWalletCardLayout: Codable {
     }
 }
 
+public enum FlexGramProfileField: String {
+    case bio, businessGreeting, businessHours, businessLocation
+}
+
 /// Presentation data for this installation only. No Telegram engine records are changed.
 public enum FlexGramOverrides {
     private static let defaults = UserDefaults.standard
@@ -166,6 +170,63 @@ public enum FlexGramOverrides {
 
     private static func messageKey(accountId: Int64, messageId: String) -> String {
         return "flexgram.message.\(accountId).\(messageId)"
+    }
+
+    public static func profileField(_ field: FlexGramProfileField, accountId: Int64, peerId: Int64) -> String? {
+        guard let value = peerValue("profile.\(field.rawValue)", accountId: accountId, peerId: peerId) as? String, !value.isEmpty else { return nil }
+        return value
+    }
+
+    public static func setProfileField(_ field: FlexGramProfileField, value: String?, accountId: Int64, peerId: Int64) {
+        let key = peerKey("profile.\(field.rawValue)", accountId: accountId, peerId: peerId)
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            if sharedAppearance { defaults.set("", forKey: key) } else { defaults.removeObject(forKey: key) }
+        } else {
+            defaults.set(String(trimmed.prefix(field == .businessGreeting ? 256 : 160)), forKey: key)
+        }
+        NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+    }
+
+    public static func aliases(accountId: Int64, peerId: Int64) -> [String] {
+        guard let data = peerValue("aliases", accountId: accountId, peerId: peerId) as? Data,
+              let stored = try? JSONDecoder().decode([String].self, from: data) else {
+            return name(accountId: accountId, peerId: peerId).map { [$0] } ?? []
+        }
+        let value = Array(stored.prefix(30))
+        if let current = name(accountId: accountId, peerId: peerId), !value.contains(current) {
+            return [current] + Array(value.prefix(29))
+        }
+        return value
+    }
+
+    @discardableResult
+    public static func addAlias(_ alias: String, accountId: Int64, peerId: Int64) -> Bool {
+        let value = String(alias.trimmingCharacters(in: .whitespacesAndNewlines).prefix(64))
+        guard !value.isEmpty else { return false }
+        var names = aliases(accountId: accountId, peerId: peerId)
+        guard names.count < 30 || names.contains(value) else { return false }
+        names.removeAll(where: { $0 == value })
+        names.insert(value, at: 0)
+        guard let data = try? JSONEncoder().encode(names) else { return false }
+        defaults.set(data, forKey: peerKey("aliases", accountId: accountId, peerId: peerId))
+        setName(value, accountId: accountId, peerId: peerId)
+        NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+        return true
+    }
+
+    @discardableResult
+    public static func removeAlias(_ alias: String, accountId: Int64, peerId: Int64) -> Bool {
+        var names = aliases(accountId: accountId, peerId: peerId)
+        guard names.contains(alias) else { return false }
+        names.removeAll(where: { $0 == alias })
+        guard let data = try? JSONEncoder().encode(names) else { return false }
+        defaults.set(data, forKey: peerKey("aliases", accountId: accountId, peerId: peerId))
+        if name(accountId: accountId, peerId: peerId) == alias {
+            setName(names.first, accountId: accountId, peerId: peerId)
+        }
+        NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+        return true
     }
 
     public static func name(accountId: Int64, peerId: Int64) -> String? {
@@ -276,6 +337,17 @@ public enum FlexGramOverrides {
         guard let index = value.firstIndex(where: { $0.localId == localId }) else { return false }
         value[index] = updated
         guard let data = try? JSONEncoder().encode(value) else { return false }
+        defaults.set(data, forKey: peerKey("gifts", accountId: accountId, peerId: peerId))
+        NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
+        return true
+    }
+
+    @discardableResult
+    public static func removeGift(localId: String, accountId: Int64, peerId: Int64) -> Bool {
+        var gifts = storedGifts(accountId: accountId, peerId: peerId)
+        guard let index = gifts.firstIndex(where: { $0.localId == localId }) else { return false }
+        gifts.remove(at: index)
+        guard let data = try? JSONEncoder().encode(gifts) else { return false }
         defaults.set(data, forKey: peerKey("gifts", accountId: accountId, peerId: peerId))
         NotificationCenter.default.post(name: .flexGramLocalDataChanged, object: nil)
         return true
