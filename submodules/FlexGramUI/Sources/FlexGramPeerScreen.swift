@@ -188,7 +188,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
                 self.stack.addArrangedSubview(transferCard)
             }
 
-            self.addSectionTitle("КАТАЛОГ TELEGRAM · ЛОКАЛЬНАЯ КОПИЯ")
+            self.addSectionTitle("КАТАЛОГ TELEGRAM · ЛОКАЛЬНЫЕ ЗАПИСИ")
             let makerCard = self.makeGroup()
             self.catalogueStatus.text = "Загружаю изображения подарков…"
             self.catalogueStatus.textColor = colors.itemSecondaryTextColor

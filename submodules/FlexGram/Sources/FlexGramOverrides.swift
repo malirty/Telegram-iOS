@@ -7,7 +7,7 @@ public struct FlexGramGift: Codable {
     public let background: String
     public let pattern: String
     public let localId: String?
-    /// Read-only Telegram catalogue media copied into a local presentation record.
+    /// Read-only Telegram catalogue metadata; media files are loaded by Telegram's renderer.
     public let catalogueGift: StarGift?
     public let collectibleAttributes: [StarGift.UniqueGift.Attribute]?
 
