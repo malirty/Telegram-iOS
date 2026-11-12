@@ -46,8 +46,6 @@ public final class FlexGramMessageScreen: ViewController {
             self.stack.addArrangedSubview(self.statusLabel)
         }
 
-        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
         override func didLoad() {
             super.didLoad()
             self.view.addSubview(self.scrollView)

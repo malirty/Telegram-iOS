@@ -1198,6 +1198,7 @@ public final class AvatarNode: ASDisplayNode {
     
     public let contentNode: ContentNode
     private let flexGramAvatarNode = ASImageNode()
+    private var flexGramAvatarClipStyle: AvatarNodeClipStyle = .round
     private var storyIndicator: ComponentView<Empty>?
     public private(set) var storyPresentationParams: StoryPresentationParams?
     
@@ -1313,6 +1314,7 @@ public final class AvatarNode: ASDisplayNode {
         
         self.contentNode.updateSize(size: size)
         self.flexGramAvatarNode.frame = CGRect(origin: .zero, size: size)
+        self.updateFlexGramClipRadius()
         
         self.updateStoryIndicator(transition: .immediate)
     }
@@ -1421,13 +1423,18 @@ public final class AvatarNode: ASDisplayNode {
     }
 
     private func updateFlexGramAvatar(accountId: Int64, peerId: Int64?, overrideImage: AvatarNodeImageOverride?, clipStyle: AvatarNodeClipStyle) {
+        self.flexGramAvatarClipStyle = clipStyle
         if overrideImage == nil, let peerId {
             self.flexGramAvatarNode.image = FlexGramOverrides.avatar(accountId: accountId, peerId: peerId)
         } else {
             self.flexGramAvatarNode.image = nil
         }
         self.flexGramAvatarNode.isHidden = self.flexGramAvatarNode.image == nil
-        switch clipStyle {
+        self.updateFlexGramClipRadius()
+    }
+
+    private func updateFlexGramClipRadius() {
+        switch self.flexGramAvatarClipStyle {
         case .none:
             self.flexGramAvatarNode.cornerRadius = 0
         case .roundedRect:

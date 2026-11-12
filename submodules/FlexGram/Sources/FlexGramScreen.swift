@@ -128,7 +128,7 @@ public final class FlexGramScreen: ViewController {
             self.stack.addArrangedSubview(self.makeCounterRow(title: "Stars", decrement: #selector(self.decreaseStars), increment: #selector(self.increaseStars)))
             self.stack.addArrangedSubview(self.tonLabel)
             self.stack.addArrangedSubview(self.makeCounterRow(title: "TON", decrement: #selector(self.decreaseTon), increment: #selector(self.increaseTon)))
-            self.addText("Демо-значения: их нельзя потратить или отправить.", secondary: true)
+            self.addText("Виртуальные Stars можно использовать для локальных подарков. TON остаётся только счётчиком.", secondary: true)
 
             self.addCard(title: "Профиль и сообщения · локальный предпросмотр")
             self.nameField = self.makeTextField(placeholder: "Локальное имя профиля", value: FlexGramLocalSettings.profileDisplayNameOverride ?? "")
