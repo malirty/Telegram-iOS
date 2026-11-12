@@ -16,7 +16,9 @@ public final class FlexGramScreen: ViewController {
         private let tonLabel = UILabel()
         private let nameField = UITextField()
         private let authorField = UITextField()
+        private let sharedSwitch = UISwitch()
         private let profileNote = UILabel()
+        private var historyCard: UIStackView?
         var onEditStars: (() -> Void)?
         var onEditTon: (() -> Void)?
         var onOpenMyProfile: (() -> Void)?
@@ -50,6 +52,11 @@ public final class FlexGramScreen: ViewController {
             self.stack.addArrangedSubview(walletCard)
             self.addDescription("Нажмите на сумму, чтобы задать любое значение. При локальном подарке списываются 100 виртуальных Stars. Настоящий баланс Telegram не меняется.")
 
+            self.addSectionTitle("ЛОКАЛЬНАЯ ИСТОРИЯ")
+            let historyCard = self.makeGroup()
+            self.historyCard = historyCard
+            self.stack.addArrangedSubview(historyCard)
+
             self.addSectionTitle("ЛОКАЛЬНЫЙ ПРОФИЛЬ")
             let profileCard = self.makeGroup()
             self.configureField(self.nameField, placeholder: "Имя в моём профиле", text: FlexGramLocalSettings.profileDisplayNameOverride)
@@ -58,7 +65,22 @@ public final class FlexGramScreen: ViewController {
             self.authorField.addTarget(self, action: #selector(self.authorChanged), for: .editingChanged)
             profileCard.addArrangedSubview(self.nameField)
             profileCard.addArrangedSubview(self.authorField)
-            self.profileNote.text = "Изменения профиля и сообщений появятся после повторного открытия соответствующего экрана."
+            let sharedRow = UIStackView()
+            sharedRow.axis = .horizontal
+            sharedRow.alignment = .center
+            sharedRow.spacing = 12.0
+            let sharedLabel = UILabel()
+            sharedLabel.text = "Общий вид между аккаунтами"
+            sharedLabel.font = .systemFont(ofSize: 15.0)
+            sharedLabel.textColor = colors.itemPrimaryTextColor
+            sharedLabel.numberOfLines = 0
+            sharedRow.addArrangedSubview(sharedLabel)
+            self.sharedSwitch.isOn = FlexGramOverrides.sharedAppearance
+            self.sharedSwitch.onTintColor = colors.itemAccentColor
+            self.sharedSwitch.addTarget(self, action: #selector(self.sharedChanged), for: .valueChanged)
+            sharedRow.addArrangedSubview(self.sharedSwitch)
+            profileCard.addArrangedSubview(sharedRow)
+            self.profileNote.text = "При общем виде новые имена, аватары, значки и подарки видны во всех аккаунтах на этом iPhone. Изменения появятся после повторного открытия экрана."
             self.profileNote.font = .systemFont(ofSize: 13.0)
             self.profileNote.textColor = colors.itemSecondaryTextColor
             self.profileNote.numberOfLines = 0
@@ -99,6 +121,45 @@ public final class FlexGramScreen: ViewController {
         func refreshValues() {
             self.starsLabel.text = "\(FlexGramOverrides.virtualStars) Stars"
             self.tonLabel.text = "\(String(format: "%.2f", FlexGramOverrides.virtualTon)) TON"
+            self.sharedSwitch.isOn = FlexGramOverrides.sharedAppearance
+            self.refreshHistory()
+        }
+
+        private func refreshHistory() {
+            guard let historyCard = self.historyCard else { return }
+            historyCard.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            let entries = Array(FlexGramOverrides.balanceHistory.prefix(8))
+            if entries.isEmpty {
+                let label = UILabel()
+                label.text = "Изменения баланса и подарки появятся здесь"
+                label.font = .systemFont(ofSize: 14.0)
+                label.textColor = self.presentationData.theme.list.itemSecondaryTextColor
+                label.numberOfLines = 0
+                historyCard.addArrangedSubview(label)
+                return
+            }
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateStyle = .short
+            dateFormatter.timeStyle = .short
+            for (index, entry) in entries.enumerated() {
+                if index > 0 { historyCard.addArrangedSubview(self.separator()) }
+                let row = UIStackView()
+                row.axis = .horizontal
+                row.spacing = 8.0
+                let details = UILabel()
+                details.numberOfLines = 2
+                details.text = "\(entry.title)\n\(dateFormatter.string(from: entry.date))"
+                details.font = .systemFont(ofSize: 14.0)
+                details.textColor = self.presentationData.theme.list.itemPrimaryTextColor
+                row.addArrangedSubview(details)
+                let amount = UILabel()
+                amount.text = entry.currency == .stars ? String(format: "%+.0f ★", entry.change) : String(format: "%+.2f TON", entry.change)
+                amount.font = .monospacedDigitSystemFont(ofSize: 14.0, weight: .semibold)
+                amount.textColor = self.presentationData.theme.list.itemSecondaryTextColor
+                amount.setContentCompressionResistancePriority(.required, for: .horizontal)
+                row.addArrangedSubview(amount)
+                historyCard.addArrangedSubview(row)
+            }
         }
 
         private func makeGroup() -> UIStackView {
@@ -209,7 +270,11 @@ public final class FlexGramScreen: ViewController {
             field.heightAnchor.constraint(equalToConstant: 46.0).isActive = true
         }
 
-        @objc private func increaseStars() { FlexGramOverrides.virtualStars += 100; self.refreshValues() }
+        @objc private func increaseStars() {
+            let current = min(1_000_000_000, FlexGramOverrides.virtualStars)
+            FlexGramOverrides.virtualStars = min(1_000_000_000, current + 100)
+            self.refreshValues()
+        }
         @objc private func decreaseStars() { FlexGramOverrides.virtualStars = max(0, FlexGramOverrides.virtualStars - 100); self.refreshValues() }
         @objc private func increaseTon() { FlexGramOverrides.virtualTon += 1.0; self.refreshValues() }
         @objc private func decreaseTon() { FlexGramOverrides.virtualTon = max(0.0, FlexGramOverrides.virtualTon - 1.0); self.refreshValues() }
@@ -218,6 +283,7 @@ public final class FlexGramScreen: ViewController {
         @objc private func openMyProfile() { self.onOpenMyProfile?() }
         @objc private func profileChanged() { FlexGramLocalSettings.profileDisplayNameOverride = self.nameField.text }
         @objc private func authorChanged() { FlexGramLocalSettings.outgoingAuthorNameOverride = self.authorField.text }
+        @objc private func sharedChanged() { FlexGramOverrides.sharedAppearance = self.sharedSwitch.isOn }
     }
 
     private let context: AccountContext

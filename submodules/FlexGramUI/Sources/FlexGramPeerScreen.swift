@@ -19,6 +19,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
         private let stack = UIStackView()
         private let avatarView = UIImageView()
         private let nameField = UITextField()
+        private let badgeField = UITextField()
         private let galleryScroll = UIScrollView()
         private let galleryStack = UIStackView()
         private let emptyGalleryLabel = UILabel()
@@ -31,6 +32,11 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
         private let patternButton = UIButton(type: .system)
         private let balanceLabel = UILabel()
         private let statusLabel = UILabel()
+        private let deliveryPicker = UIDatePicker()
+        private let secondsStepper = UIStepper()
+        private let secondsLabel = UILabel()
+        private let pendingStack = UIStackView()
+        private var displayedPending: [FlexGramScheduledGift] = []
 
         private var catalogue: [StarGift.Gift] = []
         private var selectedGift: StarGift.Gift?
@@ -95,6 +101,17 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             self.nameField.heightAnchor.constraint(equalToConstant: 46.0).isActive = true
             self.nameField.addTarget(self, action: #selector(self.nameChanged), for: .editingChanged)
             identityCard.addArrangedSubview(self.nameField)
+            self.badgeField.text = FlexGramOverrides.chatBadge(accountId: self.accountId, peerId: peerId)
+            self.badgeField.placeholder = "Значок чата · например ★"
+            self.badgeField.textColor = colors.itemPrimaryTextColor
+            self.badgeField.tintColor = colors.itemAccentColor
+            self.badgeField.backgroundColor = colors.plainBackgroundColor
+            self.badgeField.layer.cornerRadius = 10.0
+            self.badgeField.leftView = UIView(frame: CGRect(x: 0.0, y: 0.0, width: 12.0, height: 1.0))
+            self.badgeField.leftViewMode = .always
+            self.badgeField.heightAnchor.constraint(equalToConstant: 46.0).isActive = true
+            self.badgeField.addTarget(self, action: #selector(self.badgeChanged), for: .editingChanged)
+            identityCard.addArrangedSubview(self.badgeField)
             self.stack.addArrangedSubview(identityCard)
 
             self.addSectionTitle("ПОДАРКИ В ПРОФИЛЕ")
@@ -140,6 +157,31 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             makerCard.addArrangedSubview(self.backdropButton)
             makerCard.addArrangedSubview(self.patternButton)
             makerCard.addArrangedSubview(self.makePrimaryButton("Добавить в профиль · 100 виртуальных Stars", action: #selector(self.sendGift)))
+            self.deliveryPicker.datePickerMode = .dateAndTime
+            self.deliveryPicker.preferredDatePickerStyle = .compact
+            self.deliveryPicker.minimumDate = Date()
+            self.deliveryPicker.date = Date().addingTimeInterval(300.0)
+            self.deliveryPicker.tintColor = colors.itemAccentColor
+            self.deliveryPicker.heightAnchor.constraint(greaterThanOrEqualToConstant: 44.0).isActive = true
+            makerCard.addArrangedSubview(self.deliveryPicker)
+            let secondsRow = UIStackView()
+            secondsRow.axis = .horizontal
+            secondsRow.alignment = .center
+            secondsRow.spacing = 12.0
+            self.secondsLabel.text = "Секунды: 00"
+            self.secondsLabel.font = .systemFont(ofSize: 14.0)
+            self.secondsLabel.textColor = colors.itemSecondaryTextColor
+            secondsRow.addArrangedSubview(self.secondsLabel)
+            self.secondsStepper.minimumValue = 0.0
+            self.secondsStepper.maximumValue = 59.0
+            self.secondsStepper.stepValue = 1.0
+            self.secondsStepper.addTarget(self, action: #selector(self.secondsChanged), for: .valueChanged)
+            secondsRow.addArrangedSubview(self.secondsStepper)
+            makerCard.addArrangedSubview(secondsRow)
+            makerCard.addArrangedSubview(self.makeTextButton("Запланировать локально · 100 Stars", action: #selector(self.scheduleGift)))
+            self.pendingStack.axis = .vertical
+            self.pendingStack.spacing = 8.0
+            makerCard.addArrangedSubview(self.pendingStack)
             self.balanceLabel.font = .systemFont(ofSize: 14.0)
             self.balanceLabel.textColor = colors.itemSecondaryTextColor
             makerCard.addArrangedSubview(self.balanceLabel)
@@ -151,6 +193,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
 
             self.refreshGallery()
             self.refreshBalance()
+            self.refreshPending()
             self.refreshPreview()
             self.catalogueDisposable = (context.engine.payments.cachedStarGifts()
             |> deliverOnMainQueue).start(next: { [weak self] gifts in
@@ -186,6 +229,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
         func refreshLocalValues() {
             self.refreshGallery()
             self.refreshBalance()
+            self.refreshPending()
         }
 
         func updateAvatar(_ image: UIImage?) {
@@ -415,6 +459,54 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             self.balanceLabel.text = "Доступно: \(FlexGramOverrides.virtualStars) виртуальных Stars · \(String(format: "%.2f", FlexGramOverrides.virtualTon)) виртуальных TON"
         }
 
+        private func refreshPending() {
+            let pending = FlexGramOverrides.scheduledGifts(accountId: self.accountId, peerId: self.peerId)
+            self.displayedPending = Array(pending.prefix(3))
+            self.pendingStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            guard !pending.isEmpty else {
+                let label = UILabel()
+                label.text = "Запланированных локальных подарков нет"
+                label.font = .systemFont(ofSize: 13.0)
+                label.textColor = self.presentationData.theme.list.itemSecondaryTextColor
+                self.pendingStack.addArrangedSubview(label)
+                return
+            }
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            formatter.timeStyle = .medium
+            for (index, item) in self.displayedPending.enumerated() {
+                let row = UIStackView()
+                row.axis = .horizontal
+                row.alignment = .center
+                row.spacing = 8.0
+                let artwork = FlexGramGiftArtView(context: self.context)
+                artwork.widthAnchor.constraint(equalToConstant: 58.0).isActive = true
+                artwork.heightAnchor.constraint(equalToConstant: 58.0).isActive = true
+                artwork.setGift(item.gift, presentationData: self.presentationData)
+                row.addArrangedSubview(artwork)
+                let label = UILabel()
+                label.text = "\(item.gift.kind)\n\(formatter.string(from: item.deliveryDate))"
+                label.font = .systemFont(ofSize: 12.0)
+                label.textColor = self.presentationData.theme.list.itemPrimaryTextColor
+                label.numberOfLines = 2
+                row.addArrangedSubview(label)
+                let cancel = UIButton(type: .system)
+                cancel.setTitle("Отмена", for: .normal)
+                cancel.setTitleColor(self.presentationData.theme.list.itemAccentColor, for: .normal)
+                cancel.tag = index
+                cancel.addTarget(self, action: #selector(self.cancelPending(_:)), for: .touchUpInside)
+                row.addArrangedSubview(cancel)
+                self.pendingStack.addArrangedSubview(row)
+            }
+            if pending.count > self.displayedPending.count {
+                let more = UILabel()
+                more.text = "Ещё \(pending.count - self.displayedPending.count) запланировано"
+                more.font = .systemFont(ofSize: 12.0)
+                more.textColor = self.presentationData.theme.list.itemSecondaryTextColor
+                self.pendingStack.addArrangedSubview(more)
+            }
+        }
+
         @objc private func pickAvatar() { self.onPickAvatar?() }
 
         @objc private func clearAvatar() {
@@ -425,6 +517,10 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
 
         @objc private func nameChanged() {
             FlexGramOverrides.setName(self.nameField.text, accountId: self.accountId, peerId: self.peerId)
+        }
+
+        @objc private func badgeChanged() {
+            FlexGramOverrides.setChatBadge(self.badgeField.text, accountId: self.accountId, peerId: self.peerId)
         }
 
         @objc private func nextModel() {
@@ -443,6 +539,42 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
             guard !self.patterns.isEmpty else { return }
             self.patternIndex = (self.patternIndex + 1) % self.patterns.count
             self.refreshPreview()
+        }
+
+        @objc private func secondsChanged() {
+            self.secondsLabel.text = String(format: "Секунды: %02d", Int(self.secondsStepper.value))
+        }
+
+        @objc private func scheduleGift() {
+            guard let gift = self.currentGift() else {
+                self.statusLabel.text = "Сначала выберите подарок из каталога."
+                return
+            }
+            var components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: self.deliveryPicker.date)
+            components.second = Int(self.secondsStepper.value)
+            guard let date = Calendar.current.date(from: components), date > Date() else {
+                self.statusLabel.text = "Выберите время в будущем."
+                return
+            }
+            guard FlexGramOverrides.scheduleGift(gift, accountId: self.accountId, peerId: self.peerId, deliveryDate: date) else {
+                self.statusLabel.text = "Не удалось запланировать подарок. Проверьте виртуальный баланс."
+                return
+            }
+            self.refreshBalance()
+            self.refreshPending()
+            self.statusLabel.text = "Подарок появится в этом профиле после указанного времени, когда FlexGram открыт."
+        }
+
+        @objc private func cancelPending(_ sender: UIButton) {
+            guard self.displayedPending.indices.contains(sender.tag) else { return }
+            let item = self.displayedPending[sender.tag]
+            guard FlexGramOverrides.cancelScheduledGift(id: item.id, accountId: self.accountId) else {
+                self.statusLabel.text = "Подарок уже доставлен локально."
+                self.refreshLocalValues()
+                return
+            }
+            self.refreshLocalValues()
+            self.statusLabel.text = "Планирование отменено, виртуальные Stars возвращены."
         }
 
         @objc private func sendGift() {
@@ -468,6 +600,7 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
     private let peerId: Int64
     private let peerTitle: String
     private let presentationData: PresentationData
+    private var deliveryTimer: Timer?
 
     public init(context: AccountContext, peerId: Int64, peerTitle: String) {
         self.context = context
@@ -491,6 +624,19 @@ public final class FlexGramPeerScreen: ViewController, UIImagePickerControllerDe
     override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         if self.isNodeLoaded { self.node.refreshLocalValues() }
+        self.deliveryTimer?.invalidate()
+        self.deliveryTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if FlexGramOverrides.deliverDueGifts() > 0, self.isNodeLoaded {
+                self.node.refreshLocalValues()
+            }
+        }
+    }
+
+    override public func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        self.deliveryTimer?.invalidate()
+        self.deliveryTimer = nil
     }
 
     override public func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {

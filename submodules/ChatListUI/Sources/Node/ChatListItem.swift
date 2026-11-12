@@ -3515,6 +3515,9 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                                 if case let .channel(channel) = itemPeer.peer, channel.flags.contains(.isMonoforum) {
                                     titleBadgeText = item.presentationData.strings.ChatList_MonoforumLabel
                                 }
+                                if titleBadgeText == nil {
+                                    titleBadgeText = itemPeer.chatOrMonoforumMainPeer.flatMap { FlexGramOverrides.chatBadge(accountId: item.context.account.peerId.toInt64(), peerId: $0.id.toInt64()) }
+                                }
                             }
                         }
                     } else if let threadInfo = threadInfo {
@@ -3542,6 +3545,9 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         }
                         if case let .channel(channel) = itemPeer.peer, channel.flags.contains(.isMonoforum) {
                             titleBadgeText = item.presentationData.strings.ChatList_MonoforumLabel
+                        }
+                        if titleBadgeText == nil {
+                            titleBadgeText = itemPeer.chatOrMonoforumMainPeer.flatMap { FlexGramOverrides.chatBadge(accountId: item.context.account.peerId.toInt64(), peerId: $0.id.toInt64()) }
                         }
                         let localTitle = itemPeer.chatOrMonoforumMainPeer.flatMap { FlexGramOverrides.name(accountId: item.context.account.peerId.toInt64(), peerId: $0.id.toInt64()) }
                         titleAttributedString = NSAttributedString(string: localTitle ?? displayTitle, font: titleFont, textColor: textColor)
