@@ -110,6 +110,17 @@ edit('scripts/test_native_upgrade.py', source => once(source,
   'public final class VisualGramActivation { public static let shared = VisualGramActivation(); public var hasAccess = true }\n',
   '', 'upgrade test activation stub'));
 
+edit('scripts/test_native_delivery.py', source => {
+  source = once(source,
+    'appearance.index("    public func displayPeer(")',
+    'appearance.index("    public static func imageURL(")',
+    'delivery test reset fixture boundary');
+  return once(source,
+    'public typealias VisualGramUsername = Int\n',
+    'public typealias VisualGramUsername = Int\npublic struct VisualGramLocalImage: Codable, Equatable {}\n',
+    'delivery test local image fixture');
+});
+
 for (const relative of [
   'native/VisualGramActivation.swift',
   'native/VisualGramLogo.svg',
@@ -132,6 +143,12 @@ for (const relative of [
   if (source.includes('VisualGramActivation') || source.includes('VisualGramLogo.svg')) {
     throw new Error(`Activation or custom icon reference remains in ${relative}`);
   }
+}
+
+// Our local profile and message controls live in the existing VisualGram files.
+for (const name of ['VisualGramLocalAppearance.swift', 'VisualGramAppearanceController.swift']) {
+  const source = path.join(__dirname, 'VisualGramExtras', name);
+  fs.copyFileSync(source, path.join(root, 'native', name));
 }
 
 console.log('VisualGram local-only source prepared with the official Telegram icon.');

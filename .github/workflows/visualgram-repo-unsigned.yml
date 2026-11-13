@@ -1,9 +1,6 @@
 name: VisualGram local unsigned IPA
 
 on:
-  push:
-    branches:
-      - visualgram-repo-build
   workflow_dispatch:
 
 permissions:
@@ -52,8 +49,10 @@ jobs:
           node build-system/Make/PrepareVisualGramLocal.js visualgram-patches
           python3 visualgram-patches/scripts/prepare_native.py .
           python3 visualgram-patches/scripts/apply_native_features.py .
+          python3 build-system/Make/VisualGramExtras/ApplyVisualGramExtras.py .
           python3 build-system/Make/PostboxImportCheck.py .
           xcrun swiftc -frontend -parse visualgram-patches/native/*.swift
+          xcrun swiftc -frontend -parse submodules/TelegramUI/Sources/Chat/ChatControllerOpenMessageContextMenu.swift submodules/TelegramUI/Sources/ChatControllerContentData.swift submodules/TelegramUI/Sources/ChatHistoryEntriesForView.swift submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
           python3 visualgram-patches/scripts/test_native_delivery.py
           python3 visualgram-patches/scripts/test_native_upgrade.py
           python3 visualgram-patches/scripts/test_native_trading.py
