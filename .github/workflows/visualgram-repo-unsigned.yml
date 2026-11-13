@@ -1,4 +1,4 @@
-name: VisualGram repository unsigned IPA
+name: VisualGram local unsigned IPA
 
 on:
   push:
@@ -45,14 +45,22 @@ jobs:
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
 
-      - name: Apply VisualGram patches and validate Swift
+      - name: Apply local VisualGram patches and validate Swift
         shell: bash
         run: |
           set -euo pipefail
+          node build-system/Make/PrepareVisualGramLocal.js visualgram-patches
           python3 visualgram-patches/scripts/prepare_native.py .
           python3 visualgram-patches/scripts/apply_native_features.py .
           python3 build-system/Make/PostboxImportCheck.py .
           xcrun swiftc -frontend -parse visualgram-patches/native/*.swift
+          python3 visualgram-patches/scripts/test_native_delivery.py
+          python3 visualgram-patches/scripts/test_native_upgrade.py
+          python3 visualgram-patches/scripts/test_native_trading.py
+          python3 visualgram-patches/scripts/test_native_gift_flow.py
+          python3 visualgram-patches/scripts/test_native_stars_history.py
+          python3 visualgram-patches/scripts/test_native_november.py
+          python3 visualgram-patches/scripts/test_native_operations.py
           python3 visualgram-patches/scripts/validate_patched_swift.py .
 
       - name: Prepare private Telegram configuration
@@ -101,8 +109,8 @@ jobs:
             --configuration=release_arm64
           test -f bazel-bin/Telegram/Telegram.ipa
           mkdir -p build/artifacts
-          cp bazel-bin/Telegram/Telegram.ipa build/artifacts/VisualGram-source-unsigned.ipa
-          printf 'VisualGram-build commit: %s\nTelegram-iOS commit: %s\n' \
+          cp bazel-bin/Telegram/Telegram.ipa build/artifacts/VisualGram-local-unsigned.ipa
+          printf 'VisualGram-build commit: %s\nTelegram-iOS commit: %s\nLocal changes: no activation server; official Telegram icon\n' \
             '7f5f8d1690c8767a1dba6427b61f1a2328e7e60e' \
             '279f89e4d4f63f17227bf877dc3d8990f22ecd58' \
             > build/artifacts/source-commits.txt
@@ -110,9 +118,9 @@ jobs:
       - name: Upload IPA for Sideloadly
         uses: actions/upload-artifact@v4
         with:
-          name: VisualGram-source-unsigned-ipa
+          name: VisualGram-local-unsigned-ipa
           path: |
-            build/artifacts/VisualGram-source-unsigned.ipa
+            build/artifacts/VisualGram-local-unsigned.ipa
             build/artifacts/source-commits.txt
           if-no-files-found: error
           retention-days: 7
