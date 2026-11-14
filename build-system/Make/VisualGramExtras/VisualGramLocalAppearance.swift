@@ -37,7 +37,7 @@ public struct VisualGramDeviceSettings: Codable, Equatable {
     public var localPremiumPresentation = false
     public var confirmMediaSends = false
     public var messageHistoryEnabled = false
-    public var keepTimedMedia = true
+    public var keepTimedMedia = false
     public var allowProtectedScreenshots = false
     public var filteredWords: [String] = []
 
@@ -54,7 +54,7 @@ public struct VisualGramDeviceSettings: Codable, Equatable {
         self.localPremiumPresentation = try values.decodeIfPresent(Bool.self, forKey: .localPremiumPresentation) ?? false
         self.confirmMediaSends = try values.decodeIfPresent(Bool.self, forKey: .confirmMediaSends) ?? false
         self.messageHistoryEnabled = try values.decodeIfPresent(Bool.self, forKey: .messageHistoryEnabled) ?? false
-        self.keepTimedMedia = try values.decodeIfPresent(Bool.self, forKey: .keepTimedMedia) ?? true
+        self.keepTimedMedia = try values.decodeIfPresent(Bool.self, forKey: .keepTimedMedia) ?? false
         self.allowProtectedScreenshots = try values.decodeIfPresent(Bool.self, forKey: .allowProtectedScreenshots) ?? false
         self.filteredWords = try values.decodeIfPresent([String].self, forKey: .filteredWords) ?? []
     }
@@ -298,6 +298,14 @@ public final class VisualGramLocalAppearance {
             self.storedDeviceSettings = decoded
         } else {
             self.storedDeviceSettings = VisualGramDeviceSettings()
+        }
+        // Migrate the earlier on-by-default value to this opt-in control once.
+        if !self.defaults.bool(forKey: "visualgram.timed-media-opt-in-migrated.v1") {
+            self.storedDeviceSettings.keepTimedMedia = false
+            if let data = try? JSONEncoder().encode(self.storedDeviceSettings) {
+                self.defaults.set(data, forKey: "visualgram.device.v1")
+            }
+            self.defaults.set(true, forKey: "visualgram.timed-media-opt-in-migrated.v1")
         }
         // TelegramCore reads this simple flag without depending on TelegramUI.
         self.defaults.set(self.storedDeviceSettings.ghostMode, forKey: "visualgram.ghost.v1")

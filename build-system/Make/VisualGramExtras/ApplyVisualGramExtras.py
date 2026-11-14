@@ -207,8 +207,7 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
     replace_once(history, "    var count = 0\n    loop: for entry in view.entries {\n", """    var count = 0
     VisualGramMessageJournal.shared.observe(accountId: context.account.peerId, messages: view.entries.map { $0.message })
     let visualGramJournalEnabled = VisualGramLocalAppearance.shared.deviceSettings.messageHistoryEnabled
-    let visualGramTimedEnabled = VisualGramLocalAppearance.shared.deviceSettings.keepTimedMedia
-    let visualGramJournalEvents = (visualGramJournalEnabled || visualGramTimedEnabled) ? (location.peerId.map { VisualGramMessageJournal.shared.events(accountId: context.account.peerId, peerId: $0) } ?? []) : []
+    let visualGramJournalEvents = location.peerId.map { VisualGramMessageJournal.shared.events(accountId: context.account.peerId, peerId: $0) } ?? []
     loop: for entry in view.entries {
 """)
     replace_once(history, "        var message = entry.message.withAppliedEphemeralReplacementMessage()\n", """        var message = entry.message.withAppliedEphemeralReplacementMessage()
@@ -238,7 +237,7 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
     replace_once(history, "        if view.laterId == nil && !view.isLoading {\n            if !entries.isEmpty, case let .MessageEntry(lastMessage, _, _, _, _, _) = entries[entries.count - 1], let message = adMessage {\n", "        if !VisualGramLocalAppearance.shared.deviceSettings.hideSponsoredMessages && view.laterId == nil && !view.isLoading {\n            if !entries.isEmpty, case let .MessageEntry(lastMessage, _, _, _, _, _) = entries[entries.count - 1], let message = adMessage {\n")
     replace_once(history, "    if !groupMessages && reverseGroupedMessages {\n", """    // Deleted messages have left Postbox. Recreate a local row at the saved
     // timestamp, with archived media when its complete file was cached.
-    if (visualGramJournalEnabled || visualGramTimedEnabled), case .none = subject, let peerId = location.peerId,
+    if case .none = subject, let peerId = location.peerId,
        !view.isLoading {
         let timestamps = view.entries.map { $0.message.timestamp }
         let oldest = timestamps.min()
@@ -412,6 +411,59 @@ extension ChatControllerImpl {
 """, """                let isSecret = ((self.presentationInterfaceState.copyProtectionEnabled || self.presentationInterfaceState.myCopyProtectionEnabled) && !VisualGramLocalAppearance.shared.deviceSettings.allowProtectedScreenshots) || self.chatLocation.peerId?.namespace == Namespaces.Peer.SecretChat
 """)
     replace_once(context, "extension ChatControllerImpl {\n", """extension ChatControllerImpl {
+    private func visualGramShowSaveResult(_ success: Bool) {
+        let alert = UIAlertController(title: success ? "Сохранено локально" : "Не удалось сохранить",
+            message: success ? "Копия останется в этом чате на вашем устройстве." : "Файл не успел полностью загрузиться или больше недоступен.",
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        var presenter: UIViewController? = self.view.window?.rootViewController ?? self
+        while let shown = presenter?.presentedViewController { presenter = shown }
+        presenter?.present(alert, animated: true)
+    }
+
+    private func visualGramSaveLocalMedia(_ message: EngineMessage) {
+        let raw = message._asMessage()
+        guard let media = raw.media.first(where: { item in
+            if item is TelegramMediaImage { return true }
+            if let file = item as? TelegramMediaFile { return file.isVoice || file.isVideo || file.mimeType.hasPrefix("image/") }
+            return false
+        }) else { return }
+        let resource: EngineMediaResource
+        let contentType: MediaResourceUserContentType
+        if let image = media as? TelegramMediaImage, let representation = largestImageRepresentation(image.representations) {
+            resource = EngineMediaResource(representation.resource)
+            contentType = .image
+        } else if let file = media as? TelegramMediaFile {
+            resource = EngineMediaResource(file.resource)
+            contentType = MediaResourceUserContentType(file: file)
+        } else { return }
+        let account = self.context.account
+        let resources = self.context.engine.resources
+        if VisualGramMessageJournal.shared.saveLocalMedia(account: account, message: message) {
+            self.visualGramShowSaveResult(true)
+            return
+        }
+        let reference = AnyMediaReference.message(message: MessageReference(raw), media: media)
+        let signal = Signal<Bool, NoError> { subscriber in
+            let fetch = resources.fetch(reference: reference.resourceReference(resource._asResource()),
+                userLocation: .peer(raw.id.peerId), userContentType: contentType).start(error: { _ in
+                    subscriber.putNext(false)
+                    subscriber.putCompletion()
+                })
+            let data = resources.data(resource: resource, waitUntilFetchStatus: true).start(next: { value in
+                if value.complete {
+                    subscriber.putNext(true)
+                    subscriber.putCompletion()
+                }
+            })
+            return ActionDisposable { fetch.dispose(); data.dispose() }
+        }
+        let _ = (signal |> take(1) |> deliverOnMainQueue).start(next: { [weak self] downloaded in
+            let saved = downloaded && VisualGramMessageJournal.shared.saveLocalMedia(account: account, message: message)
+            self?.visualGramShowSaveResult(saved)
+        })
+    }
+
     private func visualGramEditLocalMessage(_ message: EngineMessage) {
         self.push(VisualGramMessageEditorController(context: self.context, message: message))
     }
@@ -438,6 +490,21 @@ extension ChatControllerImpl {
                     switch actions.content {
                     case let .list(items): actions.content = .list(items + extra)
                     case let .twoLists(first, second): actions.content = .twoLists(first + extra, second)
+                    case .custom: break
+                    }
+                }
+                if message.media.contains(where: { item in
+                    if item is TelegramMediaImage { return true }
+                    if let file = item as? TelegramMediaFile { return file.isVoice || file.isVideo || file.mimeType.hasPrefix("image/") }
+                    return false
+                }),
+                   VisualGramMessageJournal.shared.timedMedia(accountId: self.context.account.peerId, messageId: message.id) == nil {
+                    let save: ContextMenuItem = .action(ContextMenuActionItem(text: "Сохранить локально", icon: { _ in nil }, action: { [weak self] controller, _ in
+                        controller?.dismiss(completion: { [weak self] in self?.visualGramSaveLocalMedia(message) })
+                    }))
+                    switch actions.content {
+                    case let .list(items): actions.content = .list(items + [.separator, save])
+                    case let .twoLists(first, second): actions.content = .twoLists(first + [.separator, save], second)
                     case .custom: break
                     }
                 }
