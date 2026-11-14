@@ -110,7 +110,7 @@ private final class VisualGramAppearanceActions {
     }
 
     func toggle(_ id: Int32, value: Bool) {
-        if (100...105).contains(id) {
+        if (100...105).contains(id) || id == 122 {
             VisualGramLocalAppearance.shared.updateDeviceSettings { settings in
                 switch id {
                 case 100: settings.ghostMode = value
@@ -119,6 +119,7 @@ private final class VisualGramAppearanceActions {
                 case 103: settings.confirmMediaSends = value
                 case 104: settings.messageHistoryEnabled = value
                 case 105: settings.allowProtectedScreenshots = value
+                case 122: settings.keepTimedMedia = value
                 default: break
                 }
             }
@@ -888,13 +889,14 @@ private func visualGramAppearanceController(context: AccountContext, initialSect
                 add(103, 1, "Подтверждать отправку медиа", .toggle(settings.confirmMediaSends))
                 add(104, 2, "История изменений и удалений", .toggle(settings.messageHistoryEnabled))
                 add(105, 2, "Снимки в защищённых чатах", .toggle(settings.allowProtectedScreenshots))
+                add(122, 2, "Сохранять медиа с таймером", .toggle(settings.keepTimedMedia))
                 add(120, 2, "Открыть историю сообщений", .button(""))
                 add(121, 2, "Очистить историю сообщений", .button(""))
                 add(110, 3, "Скрываемые слова", .button(settings.filteredWords.isEmpty ? "Не заданы" : String(settings.filteredWords.count)))
                 add(130, 3, "Иконка приложения", .button("Встроенные иконки Telegram"))
                 add(111, 4, "Режим призрака оставляет чаты непрочитанными на этом устройстве. Другие ваши устройства могут отправить отметку о прочтении.", .info)
                 add(112, 4, "Локальный вид Premium не оформляет подписку и не снимает серверные ограничения.", .info)
-                add(113, 4, "История сохраняет полученные тексты. Удалённые фото, видео и голосовые остаются в чате, только если файл успел полностью скачаться. Медиа с таймером не сохраняются.", .info)
+                add(113, 4, "Удалённые фото, видео и голосовые остаются в чате, если файл успел полностью скачаться. Сохранённые медиа с таймером видны только на этом устройстве; отправка копии создаёт новое сообщение.", .info)
                 add(114, 4, "Подтверждение действует для стикеров, GIF и голосовых сообщений.", .info)
                 add(115, 4, "Свою картинку иконки нужно включить в следующую сборку приложения. Здесь доступны встроенные варианты Telegram.", .info)
             }

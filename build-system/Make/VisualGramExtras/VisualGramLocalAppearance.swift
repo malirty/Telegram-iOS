@@ -37,13 +37,14 @@ public struct VisualGramDeviceSettings: Codable, Equatable {
     public var localPremiumPresentation = false
     public var confirmMediaSends = false
     public var messageHistoryEnabled = false
+    public var keepTimedMedia = true
     public var allowProtectedScreenshots = false
     public var filteredWords: [String] = []
 
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case ghostMode, hideSponsoredMessages, localPremiumPresentation, confirmMediaSends, messageHistoryEnabled, allowProtectedScreenshots, filteredWords
+        case ghostMode, hideSponsoredMessages, localPremiumPresentation, confirmMediaSends, messageHistoryEnabled, keepTimedMedia, allowProtectedScreenshots, filteredWords
     }
 
     public init(from decoder: Decoder) throws {
@@ -53,6 +54,7 @@ public struct VisualGramDeviceSettings: Codable, Equatable {
         self.localPremiumPresentation = try values.decodeIfPresent(Bool.self, forKey: .localPremiumPresentation) ?? false
         self.confirmMediaSends = try values.decodeIfPresent(Bool.self, forKey: .confirmMediaSends) ?? false
         self.messageHistoryEnabled = try values.decodeIfPresent(Bool.self, forKey: .messageHistoryEnabled) ?? false
+        self.keepTimedMedia = try values.decodeIfPresent(Bool.self, forKey: .keepTimedMedia) ?? true
         self.allowProtectedScreenshots = try values.decodeIfPresent(Bool.self, forKey: .allowProtectedScreenshots) ?? false
         self.filteredWords = try values.decodeIfPresent([String].self, forKey: .filteredWords) ?? []
     }
@@ -300,6 +302,7 @@ public final class VisualGramLocalAppearance {
         // TelegramCore reads this simple flag without depending on TelegramUI.
         self.defaults.set(self.storedDeviceSettings.ghostMode, forKey: "visualgram.ghost.v1")
         self.defaults.set(self.storedDeviceSettings.messageHistoryEnabled, forKey: "visualgram.spy.v1")
+        self.defaults.set(self.storedDeviceSettings.keepTimedMedia, forKey: "visualgram.timed-media.v1")
         if let data = self.defaults.data(forKey: "visualgram.messages.v1"), let decoded = try? JSONDecoder().decode([String: VisualGramMessageOverride].self, from: data) {
             self.messageValues = decoded
         } else {
@@ -384,6 +387,7 @@ public final class VisualGramLocalAppearance {
         }
         self.defaults.set(settings.ghostMode, forKey: "visualgram.ghost.v1")
         self.defaults.set(settings.messageHistoryEnabled, forKey: "visualgram.spy.v1")
+        self.defaults.set(settings.keepTimedMedia, forKey: "visualgram.timed-media.v1")
         self.revisionValue &+= 1
         let revision = self.revisionValue
         self.lock.unlock()

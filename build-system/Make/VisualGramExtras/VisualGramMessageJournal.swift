@@ -69,6 +69,7 @@ public final class VisualGramMessageJournal {
     private let revision = ValuePromise<Int32>(0, ignoreRepeated: true)
     private var revisionValue: Int32 = 0
     private var storage: Storage
+    private var timedArchives: [String: VisualGramArchivedMedia]
 
     private static let maximumFileBytes: Int64 = 512 * 1024 * 1024
     private static let maximumArchiveBytes: Int64 = 1024 * 1024 * 1024
@@ -84,9 +85,16 @@ public final class VisualGramMessageJournal {
         } else {
             self.storage = Storage()
         }
+        if let data = self.defaults.data(forKey: "visualgram.timed-archives.v1"),
+           let decoded = try? JSONDecoder().decode([String: VisualGramArchivedMedia].self, from: data) {
+            self.timedArchives = decoded
+        } else {
+            self.timedArchives = [:]
+        }
     }
 
     private var enabled: Bool { self.defaults.bool(forKey: "visualgram.spy.v1") }
+    private var timedEnabled: Bool { self.defaults.object(forKey: "visualgram.timed-media.v1") as? Bool ?? true }
     public var changes: Signal<Int32, NoError> { self.revision.get() }
 
     private func key(accountId: Int64, peerId: Int64, namespace: Int32, messageId: Int32) -> String {
@@ -103,8 +111,16 @@ public final class VisualGramMessageJournal {
                 self.storage.snapshots.removeValue(forKey: key)
             }
         }
+        if self.timedArchives.count > 200 {
+            for key in self.timedArchives.keys.sorted().prefix(self.timedArchives.count - 200) {
+                self.removeArchive(self.timedArchives.removeValue(forKey: key))
+            }
+        }
         if let data = try? JSONEncoder().encode(self.storage) {
             self.defaults.set(data, forKey: "visualgram.journal.v1")
+        }
+        if let data = try? JSONEncoder().encode(self.timedArchives) {
+            self.defaults.set(data, forKey: "visualgram.timed-archives.v1")
         }
         if notify {
             self.revisionValue &+= 1
@@ -124,9 +140,6 @@ public final class VisualGramMessageJournal {
     }
 
     private func mediaSnapshot(_ message: Message) -> Snapshot.Media? {
-        // Timed media and secret chats have their own expiration contract.
-        guard message.id.peerId.namespace != Namespaces.Peer.SecretChat,
-              !message.attributes.contains(where: { $0 is AutoremoveTimeoutMessageAttribute || $0 is AutoclearTimeoutMessageAttribute }) else { return nil }
         for item in message.media {
             if let image = item as? TelegramMediaImage,
                let largest = largestImageRepresentation(image.representations) {
@@ -165,7 +178,7 @@ public final class VisualGramMessageJournal {
         let suffix: String
         if media.kind == .image { suffix = ".jpg" }
         else if let original = media.originalFile.flatMap({ try? JSONDecoder().decode(TelegramMediaFile.self, from: $0) }) {
-            if original.isVoice { suffix = ".ogg" }
+            if original.isVoice { suffix = original.mimeType == "audio/mp4" ? ".m4a" : ".ogg" }
             else if original.mimeType == "video/quicktime" { suffix = ".mov" }
             else if original.mimeType.hasPrefix("video/") { suffix = ".mp4" }
             else { suffix = ".bin" }
@@ -183,7 +196,7 @@ public final class VisualGramMessageJournal {
                                                mediaId: Int64.random(in: 1...Int64.max),
                                                width: media.width, height: media.height,
                                                originalFile: media.originalFile)
-        let previous = self.storage.events.compactMap { $0.archivedMedia }
+        let previous = self.storage.events.compactMap { $0.archivedMedia } + Array(self.timedArchives.values)
         var total: Int64 = size
         for item in previous {
             let path = directory.appendingPathComponent(item.fileName).path
@@ -223,12 +236,56 @@ public final class VisualGramMessageJournal {
         }
     }
 
+    /// Captures an already downloaded timed file before Telegram replaces or removes it.
+    public func recordTimed(accountId: PeerId, message: Message, mediaBox: MediaBox) {
+        guard self.timedEnabled,
+              message.attributes.contains(where: { $0 is AutoclearTimeoutMessageAttribute || $0 is AutoremoveTimeoutMessageAttribute }) else { return }
+        let key = self.key(accountId: accountId.toInt64(), peerId: message.id.peerId.toInt64(),
+                           namespace: message.id.namespace, messageId: message.id.id)
+        self.lock.lock()
+        if self.archivedMedia(self.timedArchives[key]) == nil,
+           let archived = self.archive(self.mediaSnapshot(message), mediaBox: mediaBox) {
+            self.timedArchives[key] = archived
+            self.storage.snapshots[key] = self.snapshot(accountId: accountId, message: message)
+            self.save(notify: true)
+        }
+        self.lock.unlock()
+    }
+
+    /// Only the local chat row is changed; Telegram's timer and server state continue normally.
+    public func displayTimed(accountId: PeerId, message: Message) -> Message {
+        let key = self.key(accountId: accountId.toInt64(), peerId: message.id.peerId.toInt64(),
+                           namespace: message.id.namespace, messageId: message.id.id)
+        self.lock.lock()
+        let stored = self.timedArchives[key]
+        self.lock.unlock()
+        guard self.timedEnabled, let media = self.archivedMedia(stored) else { return message }
+        let attributes = message.attributes.filter {
+            !($0 is AutoclearTimeoutMessageAttribute) && !($0 is AutoremoveTimeoutMessageAttribute)
+        }
+        return message.withUpdatedMedia([media]).withUpdatedAttributes(attributes)
+            .withUpdatedStableVersion(stableVersion: message.stableVersion &+ 1)
+    }
+
+    public func timedMedia(accountId: PeerId, messageId: MessageId) -> Media? {
+        let key = self.key(accountId: accountId.toInt64(), peerId: messageId.peerId.toInt64(),
+                           namespace: messageId.namespace, messageId: messageId.id)
+        self.lock.lock()
+        let stored = self.timedArchives[key]
+        self.lock.unlock()
+        return self.timedEnabled ? self.archivedMedia(stored) : nil
+    }
+
     private func event(_ kind: VisualGramJournalEvent.Kind, snapshot: Snapshot, updatedText: String? = nil, mediaBox: MediaBox? = nil) {
         if kind == .deleted,
            self.storage.events.last(where: { $0.accountId == snapshot.accountId && $0.peerId == snapshot.peerId && $0.messageId == snapshot.messageId })?.kind == .deleted {
             return
         }
-        let archived = kind == .deleted ? self.archive(snapshot.media, mediaBox: mediaBox) : nil
+        let snapshotKey = self.key(accountId: snapshot.accountId, peerId: snapshot.peerId,
+                                   namespace: snapshot.namespace, messageId: snapshot.messageId)
+        let archived = kind == .deleted
+            ? (self.timedArchives.removeValue(forKey: snapshotKey) ?? self.archive(snapshot.media, mediaBox: mediaBox))
+            : nil
         self.storage.events.append(VisualGramJournalEvent(
             id: UUID().uuidString, accountId: snapshot.accountId, peerId: snapshot.peerId,
             messageId: snapshot.messageId, authorId: snapshot.authorId,
@@ -276,19 +333,21 @@ public final class VisualGramMessageJournal {
     }
 
     public func recordDeleted(accountId: PeerId, messages: [Message], mediaBox: MediaBox) {
-        guard self.enabled else { return }
         self.lock.lock()
+        var recorded = false
         for message in messages {
             let key = self.key(accountId: accountId.toInt64(), peerId: message.id.peerId.toInt64(), namespace: message.id.namespace, messageId: message.id.id)
+            guard self.enabled || (self.timedEnabled && self.timedArchives[key] != nil) else { continue }
             let snapshot = self.storage.snapshots.removeValue(forKey: key) ?? self.snapshot(accountId: accountId, message: message)
             self.event(.deleted, snapshot: snapshot, mediaBox: mediaBox)
+            recorded = true
         }
-        if !messages.isEmpty { self.save(notify: true) }
+        if recorded { self.save(notify: true) }
         self.lock.unlock()
     }
 
     public func recordDeletedGlobalIds(accountId: PeerId, ids: [Int32], mediaBox: MediaBox) {
-        guard self.enabled, !ids.isEmpty else { return }
+        guard !ids.isEmpty else { return }
         self.lock.lock()
         let wanted = Set(ids.map { Int64($0) })
         let matches = self.storage.snapshots.filter { _, snapshot in
@@ -296,6 +355,7 @@ public final class VisualGramMessageJournal {
                 ((snapshot.peerNamespace == Namespaces.Peer.CloudUser || snapshot.peerNamespace == Namespaces.Peer.CloudGroup) && wanted.contains(Int64(snapshot.messageId))))
         }
         for (key, snapshot) in matches {
+            guard self.enabled || (self.timedEnabled && self.timedArchives[key] != nil) else { continue }
             self.event(.deleted, snapshot: snapshot, mediaBox: mediaBox)
             self.storage.snapshots.removeValue(forKey: key)
         }
@@ -314,6 +374,10 @@ public final class VisualGramMessageJournal {
         for event in self.storage.events where event.accountId == accountId.toInt64() { self.removeArchive(event.archivedMedia) }
         self.storage.events.removeAll { $0.accountId == accountId.toInt64() }
         self.storage.snapshots = self.storage.snapshots.filter { $0.value.accountId != accountId.toInt64() }
+        let prefix = "\(accountId.toInt64()):"
+        for key in self.timedArchives.keys.filter({ $0.hasPrefix(prefix) }) {
+            self.removeArchive(self.timedArchives.removeValue(forKey: key))
+        }
         self.save(notify: true)
         self.lock.unlock()
     }

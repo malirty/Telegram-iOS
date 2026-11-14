@@ -83,6 +83,40 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
         if visualGramGhostModeEnabled() { return }
 """)
     state_updates = root / "submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift"
+    consumed = root / "submodules/TelegramCore/Sources/TelegramEngine/Messages/MarkMessageContentAsConsumedInteractively.swift"
+    replace_once(consumed,
+                 "func _internal_markMessageContentAsConsumedInteractively(postbox: Postbox, messageId: MessageId) -> Signal<Void, NoError> {\n",
+                 "func _internal_markMessageContentAsConsumedInteractively(postbox: Postbox, accountId: PeerId, messageId: MessageId) -> Signal<Void, NoError> {\n")
+    replace_once(consumed,
+                 "        if let message = transaction.getMessage(messageId), message.flags.contains(.Incoming) {\n",
+                 "        if let message = transaction.getMessage(messageId), message.flags.contains(.Incoming) {\n            VisualGramMessageJournal.shared.recordTimed(accountId: accountId, message: message, mediaBox: postbox.mediaBox)\n")
+    replace_once(consumed,
+                 "func markMessageContentAsConsumedRemotely(transaction: Transaction, messageId: MessageId, consumeDate: Int32?) {\n    if let message = transaction.getMessage(messageId) {\n",
+                 "func markMessageContentAsConsumedRemotely(transaction: Transaction, messageId: MessageId, consumeDate: Int32?, accountId: PeerId? = nil, mediaBox: MediaBox? = nil) {\n    if let message = transaction.getMessage(messageId) {\n        if let accountId, let mediaBox { VisualGramMessageJournal.shared.recordTimed(accountId: accountId, message: message, mediaBox: mediaBox) }\n")
+    engine_messages = root / "submodules/TelegramCore/Sources/TelegramEngine/Messages/TelegramEngineMessages.swift"
+    replace_once(engine_messages,
+                 "_internal_markMessageContentAsConsumedInteractively(postbox: self.account.postbox, messageId: messageId)",
+                 "_internal_markMessageContentAsConsumedInteractively(postbox: self.account.postbox, accountId: self.account.peerId, messageId: messageId)")
+    replace_once(state_updates,
+                 "markMessageContentAsConsumedRemotely(transaction: transaction, messageId: MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: id), consumeDate: date)",
+                 "markMessageContentAsConsumedRemotely(transaction: transaction, messageId: MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: id), consumeDate: date, accountId: accountPeerId, mediaBox: mediaBox)")
+    replace_once(state_updates,
+                 "markMessageContentAsConsumedRemotely(transaction: transaction, messageId: messageId, consumeDate: date)",
+                 "markMessageContentAsConsumedRemotely(transaction: transaction, messageId: messageId, consumeDate: date, accountId: accountPeerId, mediaBox: mediaBox)")
+    autoremove = root / "submodules/TelegramCore/Sources/State/ManagedAutoremoveMessageOperations.swift"
+    replace_once(autoremove,
+                 "func managedAutoremoveMessageOperations(network: Network, postbox: Postbox, isRemove: Bool) -> Signal<Void, NoError> {\n",
+                 "func managedAutoremoveMessageOperations(network: Network, postbox: Postbox, accountId: PeerId, isRemove: Bool) -> Signal<Void, NoError> {\n")
+    replace_once(autoremove,
+                 "                    if let message = transaction.getMessage(entry.messageId) {\n",
+                 "                    if let message = transaction.getMessage(entry.messageId) {\n                        VisualGramMessageJournal.shared.recordTimed(accountId: accountId, message: message, mediaBox: postbox.mediaBox)\n")
+    replace_once(autoremove,
+                 "                        if message.id.peerId.namespace == Namespaces.Peer.SecretChat || isRemove {\n                            _internal_deleteMessages(transaction: transaction, mediaBox: postbox.mediaBox, ids: [entry.messageId])\n",
+                 "                        if message.id.peerId.namespace == Namespaces.Peer.SecretChat || isRemove {\n                            VisualGramMessageJournal.shared.recordDeleted(accountId: accountId, messages: [message], mediaBox: postbox.mediaBox)\n                            _internal_deleteMessages(transaction: transaction, mediaBox: postbox.mediaBox, ids: [entry.messageId])\n")
+    account = root / "submodules/TelegramCore/Sources/Account/Account.swift"
+    replace_count(account,
+                  "managedAutoremoveMessageOperations(network: self.network, postbox: self.postbox, isRemove:",
+                  "managedAutoremoveMessageOperations(network: self.network, postbox: self.postbox, accountId: peerId, isRemove:", 2)
     replace_once(state_updates, """            case let .DeleteMessagesWithGlobalIds(ids):
                 var resourceIds: [MediaResourceId] = []
 """, """            case let .DeleteMessagesWithGlobalIds(ids):
@@ -173,10 +207,12 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
     replace_once(history, "    var count = 0\n    loop: for entry in view.entries {\n", """    var count = 0
     VisualGramMessageJournal.shared.observe(accountId: context.account.peerId, messages: view.entries.map { $0.message })
     let visualGramJournalEnabled = VisualGramLocalAppearance.shared.deviceSettings.messageHistoryEnabled
-    let visualGramJournalEvents = visualGramJournalEnabled ? (location.peerId.map { VisualGramMessageJournal.shared.events(accountId: context.account.peerId, peerId: $0) } ?? []) : []
+    let visualGramTimedEnabled = VisualGramLocalAppearance.shared.deviceSettings.keepTimedMedia
+    let visualGramJournalEvents = (visualGramJournalEnabled || visualGramTimedEnabled) ? (location.peerId.map { VisualGramMessageJournal.shared.events(accountId: context.account.peerId, peerId: $0) } ?? []) : []
     loop: for entry in view.entries {
 """)
     replace_once(history, "        var message = entry.message.withAppliedEphemeralReplacementMessage()\n", """        var message = entry.message.withAppliedEphemeralReplacementMessage()
+        message = VisualGramMessageJournal.shared.displayTimed(accountId: context.account.peerId, message: message)
         message = VisualGramLocalAppearance.shared.displayMessage(message)
         let visualGramEdit = visualGramJournalEvents.first { event in
             event.kind == .edited && event.messageId == message.id.id
@@ -202,12 +238,13 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
     replace_once(history, "        if view.laterId == nil && !view.isLoading {\n            if !entries.isEmpty, case let .MessageEntry(lastMessage, _, _, _, _, _) = entries[entries.count - 1], let message = adMessage {\n", "        if !VisualGramLocalAppearance.shared.deviceSettings.hideSponsoredMessages && view.laterId == nil && !view.isLoading {\n            if !entries.isEmpty, case let .MessageEntry(lastMessage, _, _, _, _, _) = entries[entries.count - 1], let message = adMessage {\n")
     replace_once(history, "    if !groupMessages && reverseGroupedMessages {\n", """    // Deleted messages have left Postbox. Recreate a local row at the saved
     // timestamp, with archived media when its complete file was cached.
-    if visualGramJournalEnabled, case .none = subject, let peerId = location.peerId,
-       peerId.namespace != Namespaces.Peer.SecretChat, !view.isLoading {
+    if (visualGramJournalEnabled || visualGramTimedEnabled), case .none = subject, let peerId = location.peerId,
+       !view.isLoading {
         let timestamps = view.entries.map { $0.message.timestamp }
         let oldest = timestamps.min()
         let newest = timestamps.max()
         for event in visualGramJournalEvents where event.kind == .deleted {
+            if !visualGramJournalEnabled && event.archivedMedia == nil { continue }
             guard let timestamp = event.originalTimestamp, let stableId = event.originalStableId else { continue }
             if let threadId = location.threadId, event.threadId != threadId { continue }
             if VisualGramLocalAppearance.shared.deviceSettings.hides(event.previousText) { continue }
@@ -362,7 +399,14 @@ extension ChatControllerImpl {
     context = root / "submodules/TelegramUI/Sources/Chat/ChatControllerOpenMessageContextMenu.swift"
     replace_once(context, "    func openMessageContextMenu(message: EngineMessage, selectAll: Bool, node: ASDisplayNode, frame: CGRect, anyRecognizer: UIGestureRecognizer?, location: CGPoint?) -> Void {\n", """    func openMessageContextMenu(message: EngineMessage, selectAll: Bool, node: ASDisplayNode, frame: CGRect, anyRecognizer: UIGestureRecognizer?, location: CGPoint?) -> Void {
         // A journal tombstone is a local display row, not a server message.
-        if message.id.namespace == Int32.max - 42 { return }
+        if message.id.namespace == Int32.max - 42 {
+            guard let media = message._asMessage().media.first else { return }
+            let share = self.context.sharedContext.makeShareScreen(context: self.context,
+                params: ShareControllerParams(subject: .media(.standalone(media: media), nil),
+                    immediateExternalShare: true, updatedPresentationData: self.updatedPresentationData))
+            self.present(share, in: .window(.root))
+            return
+        }
 """)
     replace_once(context, """                let isSecret = self.presentationInterfaceState.copyProtectionEnabled || self.presentationInterfaceState.myCopyProtectionEnabled || self.chatLocation.peerId?.namespace == Namespaces.Peer.SecretChat
 """, """                let isSecret = ((self.presentationInterfaceState.copyProtectionEnabled || self.presentationInterfaceState.myCopyProtectionEnabled) && !VisualGramLocalAppearance.shared.deviceSettings.allowProtectedScreenshots) || self.chatLocation.peerId?.namespace == Namespaces.Peer.SecretChat
@@ -394,6 +438,22 @@ extension ChatControllerImpl {
                     switch actions.content {
                     case let .list(items): actions.content = .list(items + extra)
                     case let .twoLists(first, second): actions.content = .twoLists(first + extra, second)
+                    case .custom: break
+                    }
+                }
+                if let media = VisualGramMessageJournal.shared.timedMedia(accountId: self.context.account.peerId, messageId: message.id) {
+                    let copy: ContextMenuItem = .action(ContextMenuActionItem(text: "Отправить сохранённую копию", icon: { _ in nil }, action: { [weak self] controller, _ in
+                        controller?.dismiss(completion: { [weak self] in
+                            guard let self else { return }
+                            let share = self.context.sharedContext.makeShareScreen(context: self.context,
+                                params: ShareControllerParams(subject: .media(.standalone(media: media), nil),
+                                    immediateExternalShare: true, updatedPresentationData: self.updatedPresentationData))
+                            self.present(share, in: .window(.root))
+                        })
+                    }))
+                    switch actions.content {
+                    case let .list(items): actions.content = .list(items + [.separator, copy])
+                    case let .twoLists(first, second): actions.content = .twoLists(first + [.separator, copy], second)
                     case .custom: break
                     }
                 }
