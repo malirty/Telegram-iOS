@@ -204,6 +204,14 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
     replace_once(chat_node, """        let isSecret = self.chatPresentationInterfaceState.copyProtectionEnabled || self.chatLocation.peerId?.namespace == Namespaces.Peer.SecretChat || self.chatLocation.peerId?.isVerificationCodes == true
 """, """        let isSecret = (self.chatPresentationInterfaceState.copyProtectionEnabled && !VisualGramLocalAppearance.shared.deviceSettings.allowProtectedScreenshots) || self.chatLocation.peerId?.namespace == Namespaces.Peer.SecretChat || self.chatLocation.peerId?.isVerificationCodes == true
 """)
+    protected_media = root / "submodules/TelegramUI/Components/Chat/ChatMessageInteractiveMediaNode/Sources/ChatMessageInteractiveMediaNode.swift"
+    replace_once(protected_media, "captureProtected: associatedData.isCopyProtectionEnabled || message.isCopyProtected() || isExtendedMedia,",
+                 "captureProtected: ((associatedData.isCopyProtectionEnabled || message.isCopyProtected()) && (!VisualGramLocalAppearance.shared.deviceSettings.allowProtectedScreenshots || message.id.peerId.namespace == Namespaces.Peer.SecretChat)) || isExtendedMedia,")
+    replace_once(protected_media, "strongSelf.imageNode.captureProtected = associatedData.isCopyProtectionEnabled || message.isCopyProtected() || isExtendedMedia",
+                 "strongSelf.imageNode.captureProtected = ((associatedData.isCopyProtectionEnabled || message.isCopyProtected()) && (!VisualGramLocalAppearance.shared.deviceSettings.allowProtectedScreenshots || message.id.peerId.namespace == Namespaces.Peer.SecretChat)) || isExtendedMedia")
+    shared_player = root / "submodules/TelegramUI/Sources/SharedMediaPlayer.swift"
+    replace_once(shared_player, "captureProtected: item.message.isCopyProtected(),",
+                 "captureProtected: item.message.isCopyProtected() && (!VisualGramLocalAppearance.shared.deviceSettings.allowProtectedScreenshots || item.message.id.peerId.namespace == Namespaces.Peer.SecretChat),")
     chat_controller = root / "submodules/TelegramUI/Sources/ChatController.swift"
     replace_once(chat_controller, """                copyProtected: self.presentationInterfaceState.copyProtectionEnabled || self.presentationInterfaceState.myCopyProtectionEnabled,
 """, """                copyProtected: (self.presentationInterfaceState.copyProtectionEnabled || self.presentationInterfaceState.myCopyProtectionEnabled) && !VisualGramLocalAppearance.shared.deviceSettings.allowProtectedScreenshots,
