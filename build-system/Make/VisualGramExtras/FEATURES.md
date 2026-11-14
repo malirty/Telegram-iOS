@@ -5,6 +5,16 @@ manual workflow applies them with `ApplyVisualGramExtras.py` before compiling.
 
 ## Added in this revision
 
+- VisualGram now has a device-wide "Open mode" switch on its main screen and
+  settings screen. It starts off. With it off, the existing triple-tap on
+  Chats remains the way into VisualGram. With it on, another user's profile
+  has Telegram's top Edit button, which opens only the local profile editor.
+  The triple-tap still opens the menu to change the mode again.
+- The local profile editor uses Telegram's item-list text fields for name,
+  username and bio, with a Done button. Avatar and banner use the photo
+  picker; reset asks for confirmation. Back returns to the screen that opened
+  the editor. No profile field is sent to Telegram's servers.
+
 - A local editor for incoming and outgoing messages with bold, italic,
   underline, strikethrough, monospace, spoiler, quote and text links. A selected
   image can replace the message media locally. The context menu can restore
@@ -63,8 +73,9 @@ manual workflow applies them with `ApplyVisualGramExtras.py` before compiling.
 
 ## Verification
 
-The complete patch chain, including the inline journal, has been applied
-successfully to a separate clean worktree on Windows. `PostboxImportCheck.py`,
-Python syntax and `git diff --check` passed. Swift parsing, type-checking,
-simulator screenshots and device behavior still require macOS. No IPA was
-produced by these source edits.
+The complete patch chain, including the new profile Edit route, has been
+applied successfully to a separate clean worktree on Windows.
+`PostboxImportCheck.py`, Python syntax and the source diff check passed.
+The upstream patch chain introduces a few whitespace-only warnings in other
+files. Swift parsing, type-checking, simulator screenshots and device behavior
+still require macOS. No IPA was produced by these source edits.

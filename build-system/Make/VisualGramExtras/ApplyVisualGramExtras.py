@@ -146,6 +146,25 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
     replace_once(status_picker, "if !self.context.isPremium || count < 3, let pushController = controller.pushController {",
                  "if (!self.context.isPremium && !VisualGramLocalAppearance.shared.deviceSettings.localPremiumPresentation) || count < 3, let pushController = controller.pushController {")
     profile = root / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift"
+    replace_once(profile, """            case .edit:
+                if case let .replyThread(message) = strongSelf.chatLocation {
+""", """            case .edit:
+                if VisualGramLocalAppearance.shared.deviceSettings.openEditorMode,
+                   strongSelf.peerId != strongSelf.context.account.peerId,
+                   let peer = strongSelf.data?.peer, case .user = peer {
+                    strongSelf.controller?.push(visualGramProfileEditorController(context: strongSelf.context, targetPeerId: strongSelf.peerId, targetTitle: peer.compactDisplayTitle))
+                    break
+                }
+                if case let .replyThread(message) = strongSelf.chatLocation {
+""")
+    replace_once(profile, """            navigationFlags.canEdit = peerInfoCanEdit(peer: self.data?.peer, chatLocation: self.chatLocation, threadData: self.data?.threadData, cachedData: self.data?.cachedData, isContact: self.data?.isContact)
+""", """            navigationFlags.canEdit = peerInfoCanEdit(peer: self.data?.peer, chatLocation: self.chatLocation, threadData: self.data?.threadData, cachedData: self.data?.cachedData, isContact: self.data?.isContact)
+            if VisualGramLocalAppearance.shared.deviceSettings.openEditorMode,
+               self.peerId != self.context.account.peerId,
+               let peer = self.data?.peer, case .user = peer {
+                navigationFlags.canEdit = true
+            }
+""")
     replace_once(profile, "                if appearance.enabled {\n", """                if appearance.enabled {
                     if let cached = data.cachedData as? CachedUserData {
                         var local = cached

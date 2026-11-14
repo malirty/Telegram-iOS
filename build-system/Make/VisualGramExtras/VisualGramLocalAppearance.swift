@@ -32,6 +32,7 @@ public struct VisualGramMessageOverride: Codable, Equatable {
 
 /// Device-wide preferences shared by every Telegram account in this install.
 public struct VisualGramDeviceSettings: Codable, Equatable {
+    public var openEditorMode = false
     public var ghostMode = false
     public var hideSponsoredMessages = false
     public var localPremiumPresentation = false
@@ -44,11 +45,12 @@ public struct VisualGramDeviceSettings: Codable, Equatable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case ghostMode, hideSponsoredMessages, localPremiumPresentation, confirmMediaSends, messageHistoryEnabled, keepTimedMedia, allowProtectedScreenshots, filteredWords
+        case openEditorMode, ghostMode, hideSponsoredMessages, localPremiumPresentation, confirmMediaSends, messageHistoryEnabled, keepTimedMedia, allowProtectedScreenshots, filteredWords
     }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.openEditorMode = try values.decodeIfPresent(Bool.self, forKey: .openEditorMode) ?? false
         self.ghostMode = try values.decodeIfPresent(Bool.self, forKey: .ghostMode) ?? false
         self.hideSponsoredMessages = try values.decodeIfPresent(Bool.self, forKey: .hideSponsoredMessages) ?? false
         self.localPremiumPresentation = try values.decodeIfPresent(Bool.self, forKey: .localPremiumPresentation) ?? false

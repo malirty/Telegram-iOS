@@ -29,7 +29,7 @@ private final class VisualGramProfilePhotoPicker: NSObject, UIImagePickerControl
 }
 
 private struct VisualGramAppearanceEntry: ItemListNodeEntry {
-    enum Kind: Equatable { case toggle(Bool), button(String), info }
+    enum Kind: Equatable { case toggle(Bool), button(String), info, singleLine(String, String), multiline(String) }
     let stableId: Int32
     let section: ItemListSectionId
     let title: String
@@ -54,12 +54,13 @@ private struct VisualGramAppearanceEntry: ItemListNodeEntry {
         case 902: icon = PresentationResourcesSettings.stars
         case 904: icon = PresentationResourcesSettings.appearance
         case 905, 100: icon = PresentationResourcesSettings.security
+        case 106, 54: icon = PresentationResourcesSettings.appearance
         case 1, 102: icon = PresentationResourcesSettings.premium
         case 2, 3: icon = PresentationResourcesSettings.emojiStatus
         case 101: icon = PresentationResourcesSettings.channels
         case 103: icon = PresentationResourcesSettings.messages
         case 104, 120: icon = PresentationResourcesSettings.recentActions
-        case 105: icon = PresentationResourcesSettings.photosBlue
+        case 105, 53: icon = PresentationResourcesSettings.photosBlue
         case 110: icon = PresentationResourcesSettings.block
         case 130: icon = PresentationResourcesSettings.chatAppearance
         default: icon = nil
@@ -71,7 +72,22 @@ private struct VisualGramAppearanceEntry: ItemListNodeEntry {
             return ItemListDisclosureItem(presentationData: presentationData, icon: icon, title: self.title, label: label, sectionId: self.section, style: .blocks, action: { actions.open(self.stableId) })
         case .info:
             return ItemListTextItem(presentationData: presentationData, text: .plain(self.title), sectionId: self.section)
+        case let .singleLine(value, placeholder):
+            return ItemListSingleLineInputItem(presentationData: presentationData, systemStyle: .glass, title: NSAttributedString(string: self.title, textColor: self.theme.list.itemPrimaryTextColor), text: value, placeholder: placeholder, type: .regular(capitalization: self.stableId == 50, autocorrection: false), clearType: .always, tag: nil, sectionId: self.section, textUpdated: { actions.updateProfileDraft(self.stableId, text: $0) }, action: {})
+        case let .multiline(value):
+            return ItemListMultilineInputItem(presentationData: presentationData, systemStyle: .glass, text: value, placeholder: self.title, maxLength: ItemListMultilineInputItemTextLimit(value: 512, display: true), sectionId: self.section, style: .blocks, textUpdated: { actions.updateProfileDraft(self.stableId, text: $0) })
         }
+    }
+}
+
+private struct VisualGramProfileDraft: Equatable {
+    var name: String
+    var username: String
+    var bio: String
+    init(_ appearance: VisualGramAppearance) {
+        self.name = appearance.localName ?? ""
+        self.username = appearance.localUsername ?? ""
+        self.bio = appearance.localBio ?? ""
     }
 }
 
@@ -85,6 +101,8 @@ private final class VisualGramAppearanceActions {
     private var expandedListBits: Int32 = 0
     var targetPeerId: EnginePeer.Id
     var targetTitle = "Мой профиль"
+    var profileDraft = ValuePromise<VisualGramProfileDraft>(VisualGramProfileDraft(VisualGramAppearance()), ignoreRepeated: true)
+    var currentProfileDraft: VisualGramProfileDraft?
     private var counterpartyId: Int64?
     private var direction: VisualGramGift.Direction = .received
     private var giftDate = Int32(Date().timeIntervalSince1970)
@@ -110,7 +128,7 @@ private final class VisualGramAppearanceActions {
     }
 
     func toggle(_ id: Int32, value: Bool) {
-        if (100...105).contains(id) || id == 122 {
+        if (100...106).contains(id) || id == 122 {
             VisualGramLocalAppearance.shared.updateDeviceSettings { settings in
                 switch id {
                 case 100: settings.ghostMode = value
@@ -119,6 +137,7 @@ private final class VisualGramAppearanceActions {
                 case 103: settings.confirmMediaSends = value
                 case 104: settings.messageHistoryEnabled = value
                 case 105: settings.allowProtectedScreenshots = value
+                case 106: settings.openEditorMode = value
                 case 122: settings.keepTimedMedia = value
                 default: break
                 }
@@ -137,6 +156,34 @@ private final class VisualGramAppearanceActions {
             default: break
             }
         }
+    }
+
+    func updateProfileDraft(_ id: Int32, text: String) {
+        guard var draft = self.currentProfileDraft else { return }
+        switch id {
+        case 50: draft.name = text
+        case 51: draft.username = text
+        case 52: draft.bio = text
+        default: return
+        }
+        self.currentProfileDraft = draft
+        self.profileDraft.set(draft)
+    }
+
+    func saveProfileDraft() {
+        guard let draft = self.currentProfileDraft else { return }
+        let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let username = draft.username.trimmingCharacters(in: CharacterSet(charactersIn: "@ ").union(.whitespacesAndNewlines))
+        let bio = draft.bio.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name.count <= 128, bio.count <= 512 else { self.message("Имя или описание слишком длинное."); return }
+        guard username.isEmpty || username.range(of: "^[A-Za-z][A-Za-z0-9_]{3,31}$", options: .regularExpression) != nil else { self.message("Юзернейм: 4–32 символа, латинские буквы, цифры и подчёркивание."); return }
+        self.update {
+            $0.enabled = true
+            $0.localName = name.isEmpty ? nil : name
+            $0.localUsername = username.isEmpty ? nil : username
+            $0.localBio = bio.isEmpty ? nil : bio
+        }
+        self.controller?.navigationController?.popViewController(animated: true)
     }
 
     func toggleList(_ bit: Int32) {
@@ -313,27 +360,19 @@ private final class VisualGramAppearanceActions {
                 VisualGramLocalAppearance.shared.reset(accountId: self.context.account.peerId, targetPeerId: self.targetPeerId)
             }))
             self.presentNative(alert)
-        case 50:
-            self.form(title: "Локальное имя", fields: [("Имя", self.appearance.localName ?? "")]) { [weak self] values in
-                guard let self, let name = values.first, name.count <= 128 else { return }
-                self.update { $0.enabled = true; $0.localName = name.isEmpty ? nil : name }
-            }
-        case 51:
-            self.form(title: "Локальный юзернейм", fields: [("Юзернейм без @", self.appearance.localUsername ?? "")]) { [weak self] values in
-                guard let self, let raw = values.first else { return }
-                let name = raw.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
-                guard name.isEmpty || name.range(of: "^[A-Za-z][A-Za-z0-9_]{3,31}$", options: .regularExpression) != nil else { self.message("Укажи юзернейм от 4 до 32 символов."); return }
-                self.update { $0.enabled = true; $0.localUsername = name.isEmpty ? nil : name }
-            }
-        case 52:
-            self.form(title: "Локальное описание", fields: [("Описание профиля", self.appearance.localBio ?? "")]) { [weak self] values in
-                guard let self, let bio = values.first, bio.count <= 512 else { return }
-                self.update { $0.enabled = true; $0.localBio = bio.isEmpty ? nil : bio }
-            }
         case 53: self.chooseProfileImage(banner: false)
         case 54: self.chooseProfileImage(banner: true)
         case 55:
-            self.update { $0.localName = nil; $0.localUsername = nil; $0.localBio = nil; $0.localAvatar = nil; $0.localBanner = nil }
+            let alert = UIAlertController(title: "Вернуть исходный профиль?", message: "Локальные имя, юзернейм, описание, фото и баннер будут удалены. Профиль Telegram не изменится.", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Вернуть", style: .destructive, handler: { [weak self] _ in
+                guard let self else { return }
+                self.update { $0.localName = nil; $0.localUsername = nil; $0.localBio = nil; $0.localAvatar = nil; $0.localBanner = nil }
+                let draft = VisualGramProfileDraft(self.appearance)
+                self.currentProfileDraft = draft
+                self.profileDraft.set(draft)
+            }))
+            self.presentNative(alert)
         case 1000..<2000: self.editUsername(index: Int(id - 1000))
         case 2000..<3000: self.openGift(index: Int(id - 2000))
         case 3000..<4000: self.openScheduledGift(index: Int(id - 3000))
@@ -834,15 +873,22 @@ func visualGramAppearanceController(context: AccountContext) -> ViewController {
     return visualGramAppearanceController(context: context, initialSection: -1, targetPeerId: nil, targetTitle: nil)
 }
 
+func visualGramProfileEditorController(context: AccountContext, targetPeerId: EnginePeer.Id, targetTitle: String) -> ViewController {
+    return visualGramAppearanceController(context: context, initialSection: 3, targetPeerId: targetPeerId, targetTitle: targetTitle)
+}
+
 private func visualGramAppearanceController(context: AccountContext, initialSection: Int32, targetPeerId: EnginePeer.Id?, targetTitle: String?) -> ViewController {
     let actions = VisualGramAppearanceActions(context: context)
     actions.currentSection = initialSection
     actions.activeSection.set(initialSection)
     if let targetPeerId { actions.targetPeerId = targetPeerId }
     if let targetTitle { actions.targetTitle = targetTitle }
-    let signal = combineLatest(context.sharedContext.presentationData, VisualGramLocalAppearance.shared.changes, actions.expandedLists.get(), actions.activeSection.get())
+    let draft = VisualGramProfileDraft(actions.appearance)
+    actions.currentProfileDraft = draft
+    actions.profileDraft.set(draft)
+    let signal = combineLatest(context.sharedContext.presentationData, VisualGramLocalAppearance.shared.changes, actions.expandedLists.get(), actions.activeSection.get(), actions.profileDraft.get())
     |> deliverOnMainQueue
-    |> map { presentationData, _, _, activeSection -> (ItemListControllerState, (ItemListNodeState, Any)) in
+    |> map { presentationData, _, _, activeSection, draft -> (ItemListControllerState, (ItemListNodeState, Any)) in
         let value = actions.appearance
         var entries: [VisualGramAppearanceEntry] = []
         func add(_ id: Int32, _ section: Int32, _ title: String, _ kind: VisualGramAppearanceEntry.Kind) {
@@ -850,9 +896,11 @@ private func visualGramAppearanceController(context: AccountContext, initialSect
         }
         if activeSection == -1 {
             add(7, -1, "Выбор профиля", .button(actions.targetTitle))
+            add(106, -1, "Открытый режим", .toggle(VisualGramLocalAppearance.shared.deviceSettings.openEditorMode))
             add(900, 0, "Профиль", .button("")); add(901, 0, "Подарки", .button("")); add(902, 0, "Балансы", .button(""))
-            add(904, 1, "Локальный профиль", .button("Имя, фото и баннер"))
-            add(905, 1, "Приватность и отображение", .button("Для всех аккаунтов"))
+            add(904, 1, "Изменить профиль", .button("Локально"))
+            add(905, 1, "Настройки VisualGram", .button("Для всех аккаунтов"))
+            add(116, 2, "В скрытом режиме редактор открывается тройным нажатием «Чаты». В открытом режиме кнопка Edit на чужом профиле открывает локальные изменения.", .info)
         } else {
             switch activeSection {
             case 0:
@@ -875,14 +923,16 @@ private func visualGramAppearanceController(context: AccountContext, initialSect
                 add(32, 1, "Баланс GRAM", .button(value.grams.map { VisualGramLocalAppearance.formatGrams($0) } ?? "Не задан"))
                 add(33, 1, "Оформить карточку GRAM", .button(""))
             case 3:
-                add(50, 0, "Имя", .button(value.localName ?? "Как в Telegram"))
-                add(51, 0, "Юзернейм", .button(value.localUsername.map { "@" + $0 } ?? "Как в Telegram"))
-                add(52, 0, "Описание", .button(value.localBio ?? "Как в Telegram"))
-                add(53, 1, "Аватар", .button(value.localAvatar == nil ? "Как в Telegram" : "Локальное фото"))
-                add(54, 1, "Баннер", .button(value.localBanner == nil ? "Не задан" : "Локальное фото"))
-                add(55, 2, "Вернуть исходный профиль", .button(""))
+                add(53, 0, "Фото профиля", .button(value.localAvatar == nil ? "Выбрать" : "Изменить"))
+                add(54, 0, "Баннер", .button(value.localBanner == nil ? "Выбрать" : "Изменить"))
+                add(50, 1, "Имя", .singleLine(draft.name, "Как в Telegram"))
+                add(51, 1, "@", .singleLine(draft.username, "Юзернейм"))
+                add(52, 2, "Описание", .multiline(draft.bio))
+                add(55, 3, "Вернуть исходный профиль", .button(""))
+                add(117, 4, "Изменения видны только на этом устройстве. Кнопка «Готово» сохраняет имя, юзернейм и описание.", .info)
             default:
                 let settings = VisualGramLocalAppearance.shared.deviceSettings
+                add(106, 0, "Открытый режим", .toggle(settings.openEditorMode))
                 add(100, 0, "Режим призрака", .toggle(settings.ghostMode))
                 add(101, 0, "Скрывать рекламу каналов", .toggle(settings.hideSponsoredMessages))
                 add(102, 1, "Локальный вид Premium", .toggle(settings.localPremiumPresentation))
@@ -902,7 +952,8 @@ private func visualGramAppearanceController(context: AccountContext, initialSect
             }
         }
         entries.sort()
-        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(activeSection == -1 ? "VisualGram" : ["Профиль", "Подарки", "Балансы", "Локальный профиль", "Приватность"][Int(activeSection)]), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: activeSection == -1 ? presentationData.strings.Common_Back : "VisualGram"))
+        let doneButton = activeSection == 3 ? ItemListNavigationButton(content: .text(presentationData.strings.Common_Done), style: .bold, enabled: true, action: { actions.saveProfileDraft() }) : nil
+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(activeSection == -1 ? "VisualGram" : activeSection == 3 ? actions.targetTitle : ["Профиль", "Подарки", "Балансы", "Изменить профиль", "Настройки"][Int(activeSection)]), leftNavigationButton: nil, rightNavigationButton: doneButton, backNavigationButton: ItemListBackButton(title: activeSection == -1 || activeSection == 3 ? presentationData.strings.Common_Back : "VisualGram"))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, animateChanges: true)
         return (controllerState, (listState, actions))
     }
