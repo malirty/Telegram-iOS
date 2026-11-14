@@ -396,14 +396,28 @@ extension ChatControllerImpl {
     replace_once(chat_content, "self.state.renderedPeer = renderedPeer", "self.state.renderedPeer = visualGramRenderedPeer(renderedPeer, accountId: context.account.peerId)")
 
     context = root / "submodules/TelegramUI/Sources/Chat/ChatControllerOpenMessageContextMenu.swift"
+    replace_once(context, "import AccountContext\n", "import AccountContext\nimport SaveToCameraRoll\n")
     replace_once(context, "    func openMessageContextMenu(message: EngineMessage, selectAll: Bool, node: ASDisplayNode, frame: CGRect, anyRecognizer: UIGestureRecognizer?, location: CGPoint?) -> Void {\n", """    func openMessageContextMenu(message: EngineMessage, selectAll: Bool, node: ASDisplayNode, frame: CGRect, anyRecognizer: UIGestureRecognizer?, location: CGPoint?) -> Void {
         // A journal tombstone is a local display row, not a server message.
         if message.id.namespace == Int32.max - 42 {
             guard let media = message._asMessage().media.first else { return }
-            let share = self.context.sharedContext.makeShareScreen(context: self.context,
-                params: ShareControllerParams(subject: .media(.standalone(media: media), nil),
-                    immediateExternalShare: true, updatedPresentationData: self.updatedPresentationData))
-            self.present(share, in: .window(.root))
+            let alert = UIAlertController(title: "Сохранённая копия", message: nil, preferredStyle: .alert)
+            if media is TelegramMediaImage || (media as? TelegramMediaFile)?.isVideo == true {
+                alert.addAction(UIAlertAction(title: "Сохранить в Фото", style: .default, handler: { [weak self] _ in
+                    self?.visualGramSaveInPhotos(message)
+                }))
+            }
+            alert.addAction(UIAlertAction(title: "Отправить копию", style: .default, handler: { [weak self] _ in
+                guard let self else { return }
+                let share = self.context.sharedContext.makeShareScreen(context: self.context,
+                    params: ShareControllerParams(subject: .media(.standalone(media: media), nil),
+                        immediateExternalShare: true, updatedPresentationData: self.updatedPresentationData))
+                self.present(share, in: .window(.root))
+            }))
+            alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+            var presenter: UIViewController? = self.view.window?.rootViewController ?? self
+            while let shown = presenter?.presentedViewController { presenter = shown }
+            presenter?.present(alert, animated: true)
             return
         }
 """)
@@ -411,57 +425,18 @@ extension ChatControllerImpl {
 """, """                let isSecret = ((self.presentationInterfaceState.copyProtectionEnabled || self.presentationInterfaceState.myCopyProtectionEnabled) && !VisualGramLocalAppearance.shared.deviceSettings.allowProtectedScreenshots) || self.chatLocation.peerId?.namespace == Namespaces.Peer.SecretChat
 """)
     replace_once(context, "extension ChatControllerImpl {\n", """extension ChatControllerImpl {
-    private func visualGramShowSaveResult(_ success: Bool) {
-        let alert = UIAlertController(title: success ? "Сохранено локально" : "Не удалось сохранить",
-            message: success ? "Копия останется в этом чате на вашем устройстве." : "Файл не успел полностью загрузиться или больше недоступен.",
-            preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        var presenter: UIViewController? = self.view.window?.rootViewController ?? self
-        while let shown = presenter?.presentedViewController { presenter = shown }
-        presenter?.present(alert, animated: true)
-    }
-
-    private func visualGramSaveLocalMedia(_ message: EngineMessage) {
+    private func visualGramSaveInPhotos(_ message: EngineMessage) {
         let raw = message._asMessage()
         guard let media = raw.media.first(where: { item in
             if item is TelegramMediaImage { return true }
-            if let file = item as? TelegramMediaFile { return file.isVoice || file.isVideo || file.mimeType.hasPrefix("image/") }
+            if let file = item as? TelegramMediaFile { return file.isVideo }
             return false
         }) else { return }
-        let resource: EngineMediaResource
-        let contentType: MediaResourceUserContentType
-        if let image = media as? TelegramMediaImage, let representation = largestImageRepresentation(image.representations) {
-            resource = EngineMediaResource(representation.resource)
-            contentType = .image
-        } else if let file = media as? TelegramMediaFile {
-            resource = EngineMediaResource(file.resource)
-            contentType = MediaResourceUserContentType(file: file)
-        } else { return }
-        let account = self.context.account
-        let resources = self.context.engine.resources
-        if VisualGramMessageJournal.shared.saveLocalMedia(account: account, message: message) {
-            self.visualGramShowSaveResult(true)
-            return
-        }
-        let reference = AnyMediaReference.message(message: MessageReference(raw), media: media)
-        let signal = Signal<Bool, NoError> { subscriber in
-            let fetch = resources.fetch(reference: reference.resourceReference(resource._asResource()),
-                userLocation: .peer(raw.id.peerId), userContentType: contentType).start(error: { _ in
-                    subscriber.putNext(false)
-                    subscriber.putCompletion()
-                })
-            let data = resources.data(resource: resource, waitUntilFetchStatus: true).start(next: { value in
-                if value.complete {
-                    subscriber.putNext(true)
-                    subscriber.putCompletion()
-                }
-            })
-            return ActionDisposable { fetch.dispose(); data.dispose() }
-        }
-        let _ = (signal |> take(1) |> deliverOnMainQueue).start(next: { [weak self] downloaded in
-            let saved = downloaded && VisualGramMessageJournal.shared.saveLocalMedia(account: account, message: message)
-            self?.visualGramShowSaveResult(saved)
-        })
+        let local = message.id.namespace == Int32.max - 42
+            || VisualGramMessageJournal.shared.timedMedia(accountId: self.context.account.peerId, messageId: message.id) != nil
+        let reference: AnyMediaReference = local ? .standalone(media: media)
+            : .message(message: MessageReference(raw), media: media)
+        let _ = saveToCameraRoll(context: self.context, userLocation: .peer(raw.id.peerId), mediaReference: reference).startStandalone()
     }
 
     private func visualGramEditLocalMessage(_ message: EngineMessage) {
@@ -495,12 +470,15 @@ extension ChatControllerImpl {
                 }
                 if message.media.contains(where: { item in
                     if item is TelegramMediaImage { return true }
-                    if let file = item as? TelegramMediaFile { return file.isVoice || file.isVideo || file.mimeType.hasPrefix("image/") }
+                    if let file = item as? TelegramMediaFile { return file.isVideo }
                     return false
                 }),
-                   VisualGramMessageJournal.shared.timedMedia(accountId: self.context.account.peerId, messageId: message.id) == nil {
-                    let save: ContextMenuItem = .action(ContextMenuActionItem(text: "Сохранить локально", icon: { _ in nil }, action: { [weak self] controller, _ in
-                        controller?.dismiss(completion: { [weak self] in self?.visualGramSaveLocalMedia(message) })
+                   (message.attributes.contains(where: { $0 is AutoclearTimeoutMessageAttribute || $0 is AutoremoveTimeoutMessageAttribute })
+                    || VisualGramMessageJournal.shared.timedMedia(accountId: self.context.account.peerId, messageId: message.id) != nil) {
+                    let save: ContextMenuItem = .action(ContextMenuActionItem(text: "Сохранить в Фото", icon: { theme in
+                        generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Save"), color: theme.actionSheet.primaryTextColor)
+                    }, action: { [weak self] controller, _ in
+                        controller?.dismiss(completion: { [weak self] in self?.visualGramSaveInPhotos(message) })
                     }))
                     switch actions.content {
                     case let .list(items): actions.content = .list(items + [.separator, save])

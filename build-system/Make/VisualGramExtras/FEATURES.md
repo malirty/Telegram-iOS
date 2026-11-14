@@ -44,10 +44,10 @@ manual workflow applies them with `ApplyVisualGramExtras.py` before compiling.
   device's Telegram cache when deletion arrives. It does not fetch deleted
   files or restore media that was never downloaded. The archive is private to
   this installation, capped at 512 MB per file and 1 GB total, and removed
-  when the journal is cleared or old events are evicted. A "Save locally"
-  action in the media context menu downloads and archives a photo, video or
-  voice file on request. "Auto-save timed media" starts off and can be enabled
-  in VisualGram settings. The local chat row then
+  when the journal is cleared or old events are evicted. "Save to Photos" in
+  the timed photo/video context menu uses Telegram's photo-library save flow
+  to put a copy in the iPhone Photos app. "Auto-save timed media" is a separate
+  opt-in control for retaining media in the chat. The local chat row then
   shows the saved file without its timer; the sender's timer and Telegram's
   server state continue normally. Long-pressing a saved timed item offers
   "Send saved copy", which uploads it as a new message without the original

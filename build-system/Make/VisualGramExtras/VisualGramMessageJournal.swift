@@ -237,11 +237,6 @@ public final class VisualGramMessageJournal {
     }
 
     /// Saves a fully cached file, whether requested manually or by auto-save.
-    public func saveLocalMedia(account: Account, message: EngineMessage) -> Bool {
-        return self.saveLocalMedia(accountId: account.peerId, message: message._asMessage(), mediaBox: account.postbox.mediaBox)
-    }
-
-    /// Saves a fully cached file, whether requested manually or by auto-save.
     @discardableResult
     public func saveLocalMedia(accountId: PeerId, message: Message, mediaBox: MediaBox) -> Bool {
         let key = self.key(accountId: accountId.toInt64(), peerId: message.id.peerId.toInt64(),
