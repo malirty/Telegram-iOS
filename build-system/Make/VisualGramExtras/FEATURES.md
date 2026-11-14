@@ -39,7 +39,13 @@ manual workflow applies them with `ApplyVisualGramExtras.py` before compiling.
 - Telegram's server rejects forwarding protected messages. This revision does
   not offer protected forwarding. Secret chats still retain screenshot blocking.
 - Message history can retain only content this installation received before a
-  remote edit or deletion. It stores text, not deleted media files. The local
+  remote edit or deletion. For ordinary deleted photos, videos and voice
+  messages, it archives a file only if that file is fully present in this
+  device's Telegram cache when deletion arrives. It does not fetch deleted
+  files or restore media that was never downloaded. The archive is private to
+  this installation, capped at 512 MB per file and 1 GB total, and removed
+  when the journal is cleared or old events are evicted. Timed and view-once
+  media use separate expiration paths and are not archived by this patch. The
   journal is bounded to 500 events and 2,000 observed message snapshots. Older
   journal entries do not include their original timestamp, so they remain in
   the journal list rather than being inserted into a chat.

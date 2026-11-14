@@ -86,13 +86,13 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
     replace_once(state_updates, """            case let .DeleteMessagesWithGlobalIds(ids):
                 var resourceIds: [MediaResourceId] = []
 """, """            case let .DeleteMessagesWithGlobalIds(ids):
-                VisualGramMessageJournal.shared.recordDeletedGlobalIds(accountId: accountPeerId, ids: ids)
+                VisualGramMessageJournal.shared.recordDeletedGlobalIds(accountId: accountPeerId, ids: ids, mediaBox: mediaBox)
                 var resourceIds: [MediaResourceId] = []
 """)
     replace_once(state_updates, """            case let .DeleteMessages(ids):
                 _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
 """, """            case let .DeleteMessages(ids):
-                VisualGramMessageJournal.shared.recordDeleted(accountId: accountPeerId, messages: ids.compactMap { transaction.getMessage($0) })
+                VisualGramMessageJournal.shared.recordDeleted(accountId: accountPeerId, messages: ids.compactMap { transaction.getMessage($0) }, mediaBox: mediaBox)
                 _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
 """)
     replace_once(state_updates, """            case let .EditMessage(id, message):
@@ -200,8 +200,8 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
 """)
     replace_once(history, "        if !dynamicAdMessages.isEmpty {\n", "        if !VisualGramLocalAppearance.shared.deviceSettings.hideSponsoredMessages && !dynamicAdMessages.isEmpty {\n")
     replace_once(history, "        if view.laterId == nil && !view.isLoading {\n            if !entries.isEmpty, case let .MessageEntry(lastMessage, _, _, _, _, _) = entries[entries.count - 1], let message = adMessage {\n", "        if !VisualGramLocalAppearance.shared.deviceSettings.hideSponsoredMessages && view.laterId == nil && !view.isLoading {\n            if !entries.isEmpty, case let .MessageEntry(lastMessage, _, _, _, _, _) = entries[entries.count - 1], let message = adMessage {\n")
-    replace_once(history, "    if !groupMessages && reverseGroupedMessages {\n", """    // Deleted messages have left Postbox. Recreate a local text-only row at the
-    // saved timestamp, but only for the currently loaded portion of this chat.
+    replace_once(history, "    if !groupMessages && reverseGroupedMessages {\n", """    // Deleted messages have left Postbox. Recreate a local row at the saved
+    // timestamp, with archived media when its complete file was cached.
     if visualGramJournalEnabled, case .none = subject, let peerId = location.peerId,
        peerId.namespace != Namespaces.Peer.SecretChat, !view.isLoading {
         let timestamps = view.entries.map { $0.message.timestamp }
@@ -227,7 +227,8 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
                 view.entries.lazy.compactMap { $0.message.author }.first { $0.id.toInt64() == authorId }
             } ?? (peerId.namespace == Namespaces.Peer.CloudUser ? chatPeer : nil)
             let authorPrefix = author == nil && peerId.namespace != Namespaces.Peer.CloudUser ? (event.authorName.map { $0 + ": " } ?? "") : ""
-            let body = event.previousText.isEmpty ? "Медиа больше недоступно" : event.previousText
+            let archivedMedia = VisualGramMessageJournal.shared.archivedMedia(event.archivedMedia)
+            let body = event.previousText.isEmpty ? (archivedMedia == nil ? "Медиа больше недоступно" : "") : event.previousText
             let message = Message(
                 stableId: stableId,
                 stableVersion: 0,
@@ -241,8 +242,8 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
                 tags: [], globalTags: [], localTags: [], customTags: [],
                 forwardInfo: nil,
                 author: author,
-                text: "🗑️ Удалено\\n" + authorPrefix + body,
-                attributes: [], media: [],
+                text: "🗑️ Удалено" + (body.isEmpty ? "" : "\\n" + authorPrefix + body),
+                attributes: [], media: archivedMedia.map { [$0] } ?? [],
                 peers: SimpleDictionary<PeerId, Peer>(),
                 associatedMessages: SimpleDictionary<MessageId, Message>(),
                 associatedMessageIds: [], associatedMedia: [:],

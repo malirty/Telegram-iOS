@@ -157,12 +157,12 @@ private final class VisualGramAppearanceActions {
         self.controller?.push(VisualGramListController(context: self.context, target: accountId, title: "История сообщений", rows: {
             events.map { event in
                 let title = event.kind == .edited ? "Изменено · чат \(event.peerId)" : "Удалено · чат \(event.peerId)"
-                let preview = event.previousText.isEmpty ? "Медиа без текста" : event.previousText.replacingOccurrences(of: "\n", with: " ")
+                let preview = event.previousText.isEmpty ? (VisualGramMessageJournal.shared.archivedMedia(event.archivedMedia) == nil ? "Медиа недоступно" : "Медиа сохранено в чате") : event.previousText.replacingOccurrences(of: "\n", with: " ")
                 return .init(id: event.id, title: title, subtitle: formatter.string(from: Date(timeIntervalSince1970: TimeInterval(event.date))) + " · " + String(preview.prefix(90)), gift: nil)
             }
         }, reorder: nil, open: { [weak self] id in
             guard let self, let event = events.first(where: { $0.id == id }) else { return }
-            let original = event.previousText.isEmpty ? "Медиа без текста" : event.previousText
+            let original = event.previousText.isEmpty ? (VisualGramMessageJournal.shared.archivedMedia(event.archivedMedia) == nil ? "Медиа недоступно" : "Медиа сохранено в чате") : event.previousText
             let detail = event.updatedText.map { "Было:\n\(original)\n\nСтало:\n\($0)" } ?? "Удалённый текст:\n\(original)"
             self.message(detail)
         }, edit: { _ in }, delete: { _ in }, allowsEditing: false))
@@ -894,7 +894,7 @@ private func visualGramAppearanceController(context: AccountContext, initialSect
                 add(130, 3, "Иконка приложения", .button("Встроенные иконки Telegram"))
                 add(111, 4, "Режим призрака оставляет чаты непрочитанными на этом устройстве. Другие ваши устройства могут отправить отметку о прочтении.", .info)
                 add(112, 4, "Локальный вид Premium не оформляет подписку и не снимает серверные ограничения.", .info)
-                add(113, 4, "История сохраняет на устройстве тексты сообщений, которые приложение успело получить до удаления или изменения.", .info)
+                add(113, 4, "История сохраняет полученные тексты. Удалённые фото, видео и голосовые остаются в чате, только если файл успел полностью скачаться. Медиа с таймером не сохраняются.", .info)
                 add(114, 4, "Подтверждение действует для стикеров, GIF и голосовых сообщений.", .info)
                 add(115, 4, "Свою картинку иконки нужно включить в следующую сборку приложения. Здесь доступны встроенные варианты Telegram.", .info)
             }
