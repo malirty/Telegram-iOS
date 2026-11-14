@@ -26,6 +26,10 @@ manual workflow applies them with `ApplyVisualGramExtras.py` before compiling.
   Menu switches and sections use the existing Telegram settings artwork.
 - The message editor sizes its hint and formatting toolbar for Dynamic Type and
   compact heights; the formatting actions remain available in a scrolling row.
+- When message history is enabled, a known server edit keeps the current message
+  in the chat and appends a pencil with the last captured version. A known
+  deletion inserts a local trash-marked text row at its original timestamp.
+  These rows are local presentation only and never restore server messages.
 
 ## Limits
 
@@ -36,7 +40,9 @@ manual workflow applies them with `ApplyVisualGramExtras.py` before compiling.
   not offer protected forwarding. Secret chats still retain screenshot blocking.
 - Message history can retain only content this installation received before a
   remote edit or deletion. It stores text, not deleted media files. The local
-  journal is bounded to 500 events and 2,000 observed message snapshots.
+  journal is bounded to 500 events and 2,000 observed message snapshots. Older
+  journal entries do not include their original timestamp, so they remain in
+  the journal list rather than being inserted into a chat.
 - Ghost mode suppresses this client's read RPC paths while enabled. Other
   Telegram sessions may still mark messages or stories as read.
 - iOS can select only icons bundled into the IPA. A new personal image must be
@@ -44,10 +50,8 @@ manual workflow applies them with `ApplyVisualGramExtras.py` before compiling.
 
 ## Verification
 
-The patch chain has been applied successfully to a separate clean worktree on
-Windows. `PostboxImportCheck.py` and Python syntax checks passed. Swift parsing,
-type-checking, simulator screenshots and device behavior still require macOS.
-No IPA was produced by these source edits.
-
-The navigation, icon and Dynamic Type changes above were made after that
-preflight. They still need a macOS compile and visual check before release.
+The complete patch chain, including the inline journal, has been applied
+successfully to a separate clean worktree on Windows. `PostboxImportCheck.py`,
+Python syntax and `git diff --check` passed. Swift parsing, type-checking,
+simulator screenshots and device behavior still require macOS. No IPA was
+produced by these source edits.

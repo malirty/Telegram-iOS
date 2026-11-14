@@ -172,10 +172,23 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
     history = root / "submodules/TelegramUI/Sources/ChatHistoryEntriesForView.swift"
     replace_once(history, "    var count = 0\n    loop: for entry in view.entries {\n", """    var count = 0
     VisualGramMessageJournal.shared.observe(accountId: context.account.peerId, messages: view.entries.map { $0.message })
+    let visualGramJournalEnabled = VisualGramLocalAppearance.shared.deviceSettings.messageHistoryEnabled
+    let visualGramJournalEvents = visualGramJournalEnabled ? (location.peerId.map { VisualGramMessageJournal.shared.events(accountId: context.account.peerId, peerId: $0) } ?? []) : []
     loop: for entry in view.entries {
 """)
     replace_once(history, "        var message = entry.message.withAppliedEphemeralReplacementMessage()\n", """        var message = entry.message.withAppliedEphemeralReplacementMessage()
         message = VisualGramLocalAppearance.shared.displayMessage(message)
+        let visualGramEdit = visualGramJournalEvents.first { event in
+            event.kind == .edited && event.messageId == message.id.id
+                && (event.originalNamespace.map { $0 == message.id.namespace } ?? true)
+        }
+        if visualGramJournalEnabled && (visualGramEdit != nil || message.attributes.contains(where: { $0 is EditedMessageAttribute })) {
+            let marker = visualGramEdit.flatMap { $0.previousText.isEmpty ? nil : $0.previousText }
+                .map { "✏️ До изменения:\\n" + $0 } ?? "✏️ Изменено"
+            message = message.withUpdatedText(message.text + (message.text.isEmpty ? "" : "\\n") + marker)
+            message = message.withUpdatedAttributes(message.attributes.filter { !($0 is EditedMessageAttribute) })
+            message = message.withUpdatedStableVersion(stableVersion: message.stableVersion &+ 1)
+        }
         if let author = message.author,
            let displayed = VisualGramLocalAppearance.shared.displayPeer(EnginePeer(author), accountId: context.account.peerId),
            case let .user(localUser) = displayed {
@@ -187,9 +200,67 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
 """)
     replace_once(history, "        if !dynamicAdMessages.isEmpty {\n", "        if !VisualGramLocalAppearance.shared.deviceSettings.hideSponsoredMessages && !dynamicAdMessages.isEmpty {\n")
     replace_once(history, "        if view.laterId == nil && !view.isLoading {\n            if !entries.isEmpty, case let .MessageEntry(lastMessage, _, _, _, _, _) = entries[entries.count - 1], let message = adMessage {\n", "        if !VisualGramLocalAppearance.shared.deviceSettings.hideSponsoredMessages && view.laterId == nil && !view.isLoading {\n            if !entries.isEmpty, case let .MessageEntry(lastMessage, _, _, _, _, _) = entries[entries.count - 1], let message = adMessage {\n")
+    replace_once(history, "    if !groupMessages && reverseGroupedMessages {\n", """    // Deleted messages have left Postbox. Recreate a local text-only row at the
+    // saved timestamp, but only for the currently loaded portion of this chat.
+    if visualGramJournalEnabled, case .none = subject, let peerId = location.peerId,
+       peerId.namespace != Namespaces.Peer.SecretChat, !view.isLoading {
+        let timestamps = view.entries.map { $0.message.timestamp }
+        let oldest = timestamps.min()
+        let newest = timestamps.max()
+        for event in visualGramJournalEvents where event.kind == .deleted {
+            guard let timestamp = event.originalTimestamp, let stableId = event.originalStableId else { continue }
+            if let threadId = location.threadId, event.threadId != threadId { continue }
+            if VisualGramLocalAppearance.shared.deviceSettings.hides(event.previousText) { continue }
+            if view.entries.contains(where: { entry in
+                entry.message.id.id == event.messageId && (event.originalNamespace.map { $0 == entry.message.id.namespace } ?? true)
+            }) { continue }
+            let isVisible: Bool
+            if let oldest, let newest {
+                isVisible = (timestamp >= oldest && timestamp <= newest)
+                    || (view.laterId == nil && timestamp > newest)
+                    || (view.earlierId == nil && timestamp < oldest)
+            } else {
+                isVisible = view.earlierId == nil && view.laterId == nil
+            }
+            if !isVisible { continue }
+            let author: Peer? = event.authorId.flatMap { authorId in
+                view.entries.lazy.compactMap { $0.message.author }.first { $0.id.toInt64() == authorId }
+            } ?? (peerId.namespace == Namespaces.Peer.CloudUser ? chatPeer : nil)
+            let authorPrefix = author == nil && peerId.namespace != Namespaces.Peer.CloudUser ? (event.authorName.map { $0 + ": " } ?? "") : ""
+            let body = event.previousText.isEmpty ? "Медиа больше недоступно" : event.previousText
+            let message = Message(
+                stableId: stableId,
+                stableVersion: 0,
+                id: MessageId(peerId: peerId, namespace: Int32.max - 42, id: event.messageId),
+                globallyUniqueId: nil,
+                groupingKey: nil,
+                groupInfo: nil,
+                threadId: event.threadId,
+                timestamp: timestamp,
+                flags: event.wasIncoming == false ? [] : [.Incoming],
+                tags: [], globalTags: [], localTags: [], customTags: [],
+                forwardInfo: nil,
+                author: author,
+                text: "🗑️ Удалено\\n" + authorPrefix + body,
+                attributes: [], media: [],
+                peers: SimpleDictionary<PeerId, Peer>(),
+                associatedMessages: SimpleDictionary<MessageId, Message>(),
+                associatedMessageIds: [], associatedMedia: [:],
+                associatedThreadInfo: nil, associatedStories: [:]
+            )
+            entries.append(.MessageEntry(message, presentationData, false, nil, .none,
+                ChatMessageEntryAttributes(rank: nil, isContact: false, contentTypeHint: .generic,
+                    updatingMedia: nil, isPlaying: false, isCentered: false, authorStoryStats: nil,
+                    displayContinueThreadFooter: false, pinToTop: false)))
+        }
+        entries.sort()
+    }
+
+    if !groupMessages && reverseGroupedMessages {
+""")
     history_list = root / "submodules/TelegramUI/Sources/ChatHistoryListNode.swift"
-    replace_once(history_list, "        let historyViewTransitionDisposable = (combineLatest(queue: messageViewQueue,\n            historyViewUpdate |> debug_measureTimeToFirstEvent(label: \"chatHistoryNode_historyViewUpdate\"),\n", """        let visualGramHistoryViewUpdate = combineLatest(historyViewUpdate, VisualGramLocalAppearance.shared.changes)
-        |> map { update, _ in update }
+    replace_once(history_list, "        let historyViewTransitionDisposable = (combineLatest(queue: messageViewQueue,\n            historyViewUpdate |> debug_measureTimeToFirstEvent(label: \"chatHistoryNode_historyViewUpdate\"),\n", """        let visualGramHistoryViewUpdate = combineLatest(historyViewUpdate, VisualGramLocalAppearance.shared.changes, VisualGramMessageJournal.shared.changes)
+        |> map { update, _, _ in update }
         let historyViewTransitionDisposable = (combineLatest(queue: messageViewQueue,
             visualGramHistoryViewUpdate |> debug_measureTimeToFirstEvent(label: "chatHistoryNode_historyViewUpdate"),
 """)
@@ -288,6 +359,10 @@ extension ChatControllerImpl {
     replace_once(chat_content, "self.state.renderedPeer = renderedPeer", "self.state.renderedPeer = visualGramRenderedPeer(renderedPeer, accountId: context.account.peerId)")
 
     context = root / "submodules/TelegramUI/Sources/Chat/ChatControllerOpenMessageContextMenu.swift"
+    replace_once(context, "    func openMessageContextMenu(message: EngineMessage, selectAll: Bool, node: ASDisplayNode, frame: CGRect, anyRecognizer: UIGestureRecognizer?, location: CGPoint?) -> Void {\n", """    func openMessageContextMenu(message: EngineMessage, selectAll: Bool, node: ASDisplayNode, frame: CGRect, anyRecognizer: UIGestureRecognizer?, location: CGPoint?) -> Void {
+        // A journal tombstone is a local display row, not a server message.
+        if message.id.namespace == Int32.max - 42 { return }
+""")
     replace_once(context, """                let isSecret = self.presentationInterfaceState.copyProtectionEnabled || self.presentationInterfaceState.myCopyProtectionEnabled || self.chatLocation.peerId?.namespace == Namespaces.Peer.SecretChat
 """, """                let isSecret = ((self.presentationInterfaceState.copyProtectionEnabled || self.presentationInterfaceState.myCopyProtectionEnabled) && !VisualGramLocalAppearance.shared.deviceSettings.allowProtectedScreenshots) || self.chatLocation.peerId?.namespace == Namespaces.Peer.SecretChat
 """)

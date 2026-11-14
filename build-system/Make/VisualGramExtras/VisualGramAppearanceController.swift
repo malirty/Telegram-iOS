@@ -829,7 +829,11 @@ private final class VisualGramAppearanceActions {
 
 }
 
-func visualGramAppearanceController(context: AccountContext, initialSection: Int32 = -1, targetPeerId: EnginePeer.Id? = nil, targetTitle: String? = nil) -> ViewController {
+func visualGramAppearanceController(context: AccountContext) -> ViewController {
+    return visualGramAppearanceController(context: context, initialSection: -1, targetPeerId: nil, targetTitle: nil)
+}
+
+private func visualGramAppearanceController(context: AccountContext, initialSection: Int32, targetPeerId: EnginePeer.Id?, targetTitle: String?) -> ViewController {
     let actions = VisualGramAppearanceActions(context: context)
     actions.currentSection = initialSection
     actions.activeSection.set(initialSection)

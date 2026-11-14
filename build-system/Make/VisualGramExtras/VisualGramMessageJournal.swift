@@ -1,5 +1,6 @@
 import Foundation
 import Postbox
+import SwiftSignalKit
 
 public struct VisualGramJournalEvent: Codable, Equatable {
     public enum Kind: String, Codable { case edited, deleted }
@@ -12,6 +13,13 @@ public struct VisualGramJournalEvent: Codable, Equatable {
     public let kind: Kind
     public let previousText: String
     public let updatedText: String?
+    // Optional so journals written by earlier builds remain readable.
+    public let originalTimestamp: Int32?
+    public let originalStableId: UInt32?
+    public let originalNamespace: Int32?
+    public let threadId: Int64?
+    public let wasIncoming: Bool?
+    public let authorName: String?
 }
 
 /// Keeps a bounded record on this device. It never requests deleted content from Telegram.
@@ -25,6 +33,11 @@ public final class VisualGramMessageJournal {
         let globalId: Int64?
         let authorId: Int64?
         let text: String
+        let originalTimestamp: Int32?
+        let originalStableId: UInt32?
+        let threadId: Int64?
+        let wasIncoming: Bool?
+        let authorName: String?
     }
     private struct Storage: Codable {
         var snapshots: [String: Snapshot] = [:]
@@ -34,6 +47,8 @@ public final class VisualGramMessageJournal {
     public static let shared = VisualGramMessageJournal()
     private let lock = NSLock()
     private let defaults = UserDefaults.standard
+    private let revision = ValuePromise<Int32>(0, ignoreRepeated: true)
+    private var revisionValue: Int32 = 0
     private var storage: Storage
 
     private init() {
@@ -46,12 +61,13 @@ public final class VisualGramMessageJournal {
     }
 
     private var enabled: Bool { self.defaults.bool(forKey: "visualgram.spy.v1") }
+    public var changes: Signal<Int32, NoError> { self.revision.get() }
 
     private func key(accountId: Int64, peerId: Int64, namespace: Int32, messageId: Int32) -> String {
         return "\(accountId):\(peerId):\(namespace):\(messageId)"
     }
 
-    private func save() {
+    private func save(notify: Bool = false) {
         if self.storage.events.count > 500 { self.storage.events.removeFirst(self.storage.events.count - 500) }
         if self.storage.snapshots.count > 2000 {
             for key in self.storage.snapshots.keys.sorted().prefix(self.storage.snapshots.count - 2000) {
@@ -60,6 +76,14 @@ public final class VisualGramMessageJournal {
         }
         if let data = try? JSONEncoder().encode(self.storage) {
             self.defaults.set(data, forKey: "visualgram.journal.v1")
+        }
+        if notify {
+            self.revisionValue &+= 1
+            let value = self.revisionValue
+            Queue.mainQueue().async { [weak self] in
+                guard let self else { return }
+                self.revision.set(value)
+            }
         }
     }
 
@@ -72,7 +96,10 @@ public final class VisualGramMessageJournal {
             id: UUID().uuidString, accountId: snapshot.accountId, peerId: snapshot.peerId,
             messageId: snapshot.messageId, authorId: snapshot.authorId,
             date: Int32(clamping: Int64(Date().timeIntervalSince1970)), kind: kind,
-            previousText: snapshot.text, updatedText: updatedText
+            previousText: snapshot.text, updatedText: updatedText,
+            originalTimestamp: snapshot.originalTimestamp, originalStableId: snapshot.originalStableId,
+            originalNamespace: snapshot.namespace, threadId: snapshot.threadId,
+            wasIncoming: snapshot.wasIncoming, authorName: snapshot.authorName
         ))
     }
 
@@ -80,11 +107,14 @@ public final class VisualGramMessageJournal {
         guard self.enabled else { return }
         self.lock.lock()
         var changed = false
+        let previousEventCount = self.storage.events.count
         for message in messages {
             let key = self.key(accountId: accountId.toInt64(), peerId: message.id.peerId.toInt64(), namespace: message.id.namespace, messageId: message.id.id)
             let snapshot = Snapshot(accountId: accountId.toInt64(), peerId: message.id.peerId.toInt64(), peerNamespace: message.id.peerId.namespace, namespace: message.id.namespace,
                                     messageId: message.id.id, globalId: message.globallyUniqueId, authorId: message.author?.id.toInt64(),
-                                    text: String(message.text.prefix(4096)))
+                                    text: String(message.text.prefix(4096)), originalTimestamp: message.timestamp,
+                                    originalStableId: message.stableId, threadId: message.threadId,
+                                    wasIncoming: message.flags.contains(.Incoming), authorName: message.author?.debugDisplayTitle)
             if let previous = self.storage.snapshots[key], previous.text != snapshot.text {
                 self.event(.edited, snapshot: previous, updatedText: snapshot.text)
             }
@@ -93,7 +123,7 @@ public final class VisualGramMessageJournal {
                 changed = true
             }
         }
-        if changed { self.save() }
+        if changed { self.save(notify: self.storage.events.count != previousEventCount) }
         self.lock.unlock()
     }
 
@@ -102,11 +132,15 @@ public final class VisualGramMessageJournal {
         self.lock.lock()
         let key = self.key(accountId: accountId.toInt64(), peerId: previous.id.peerId.toInt64(), namespace: previous.id.namespace, messageId: previous.id.id)
         let old = self.storage.snapshots[key] ?? Snapshot(accountId: accountId.toInt64(), peerId: previous.id.peerId.toInt64(), peerNamespace: previous.id.peerId.namespace, namespace: previous.id.namespace,
-            messageId: previous.id.id, globalId: previous.globallyUniqueId, authorId: previous.author?.id.toInt64(), text: String(previous.text.prefix(4096)))
+            messageId: previous.id.id, globalId: previous.globallyUniqueId, authorId: previous.author?.id.toInt64(), text: String(previous.text.prefix(4096)),
+            originalTimestamp: previous.timestamp, originalStableId: previous.stableId, threadId: previous.threadId,
+            wasIncoming: previous.flags.contains(.Incoming), authorName: previous.author?.debugDisplayTitle)
         self.event(.edited, snapshot: old, updatedText: String(updatedText.prefix(4096)))
         self.storage.snapshots[key] = Snapshot(accountId: old.accountId, peerId: old.peerId, peerNamespace: old.peerNamespace, namespace: old.namespace, messageId: old.messageId,
-            globalId: old.globalId, authorId: old.authorId, text: String(updatedText.prefix(4096)))
-        self.save()
+            globalId: old.globalId, authorId: old.authorId, text: String(updatedText.prefix(4096)),
+            originalTimestamp: old.originalTimestamp, originalStableId: old.originalStableId,
+            threadId: old.threadId, wasIncoming: old.wasIncoming, authorName: old.authorName)
+        self.save(notify: true)
         self.lock.unlock()
     }
 
@@ -116,10 +150,12 @@ public final class VisualGramMessageJournal {
         for message in messages {
             let key = self.key(accountId: accountId.toInt64(), peerId: message.id.peerId.toInt64(), namespace: message.id.namespace, messageId: message.id.id)
             let snapshot = self.storage.snapshots.removeValue(forKey: key) ?? Snapshot(accountId: accountId.toInt64(), peerId: message.id.peerId.toInt64(), peerNamespace: message.id.peerId.namespace, namespace: message.id.namespace,
-                messageId: message.id.id, globalId: message.globallyUniqueId, authorId: message.author?.id.toInt64(), text: String(message.text.prefix(4096)))
+                messageId: message.id.id, globalId: message.globallyUniqueId, authorId: message.author?.id.toInt64(), text: String(message.text.prefix(4096)),
+                originalTimestamp: message.timestamp, originalStableId: message.stableId, threadId: message.threadId,
+                wasIncoming: message.flags.contains(.Incoming), authorName: message.author?.debugDisplayTitle)
             self.event(.deleted, snapshot: snapshot)
         }
-        if !messages.isEmpty { self.save() }
+        if !messages.isEmpty { self.save(notify: true) }
         self.lock.unlock()
     }
 
@@ -135,7 +171,7 @@ public final class VisualGramMessageJournal {
             self.event(.deleted, snapshot: snapshot)
             self.storage.snapshots.removeValue(forKey: key)
         }
-        self.save()
+        if !matches.isEmpty { self.save(notify: true) }
         self.lock.unlock()
     }
 
@@ -149,7 +185,7 @@ public final class VisualGramMessageJournal {
         self.lock.lock()
         self.storage.events.removeAll { $0.accountId == accountId.toInt64() }
         self.storage.snapshots = self.storage.snapshots.filter { $0.value.accountId != accountId.toInt64() }
-        self.save()
+        self.save(notify: true)
         self.lock.unlock()
     }
 }
