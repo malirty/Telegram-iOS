@@ -5,6 +5,18 @@ manual workflow applies them with `ApplyVisualGramExtras.py` before compiling.
 
 ## Added in this revision
 
+- The local profile editor now shows photo and banner thumbnails in Telegram
+  settings rows and uses grouped section headings. The banner picker accepts a
+  still photo, an animated GIF from Files, or a video from Photos. GIFs and
+  videos are kept as local files with a still poster; videos loop silently.
+  Playback stops when the banner is collapsed, the app is in the background,
+  or Reduce Motion is enabled. Each animated file is limited to 30 MB and a
+  selected video to 30 seconds. Replaced animated files are removed after the
+  profile refreshes. Nothing is uploaded to Telegram.
+- Balance, rating, profile selection, word filter and bulk NFT input forms now
+  open as Telegram-style settings screens with native fields, Back and Done.
+  The existing local calculations and gift actions are unchanged.
+
 - VisualGram now has a device-wide "Open mode" switch on its main screen and
   settings screen. It starts off. With it off, the existing triple-tap on
   Chats remains the way into VisualGram. With it on, another user's profile

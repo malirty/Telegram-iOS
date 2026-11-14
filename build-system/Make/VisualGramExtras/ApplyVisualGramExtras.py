@@ -23,6 +23,8 @@ def replace_count(path: Path, old: str, new: str, expected: int) -> None:
 def apply(root: Path) -> None:
     shutil.copyfile(Path(__file__).with_name("VisualGramMessageEditorController.swift"),
                     root / "submodules/TelegramUI/Sources/VisualGramMessageEditorController.swift")
+    shutil.copyfile(Path(__file__).with_name("VisualGramBannerMediaView.swift"),
+                    root / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/VisualGramBannerMediaView.swift")
     shutil.copyfile(Path(__file__).with_name("VisualGramMessageJournal.swift"),
                     root / "submodules/TelegramCore/Sources/VisualGramMessageJournal.swift")
     reads = root / "submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift"
@@ -193,32 +195,32 @@ func _internal_applyMaxReadIndexInteractively(postbox: Postbox, stateManager: Ac
 """)
 
     header = root / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderNode.swift"
-    replace_once(header, "    let backgroundBannerView: UIView\n", "    let backgroundBannerView: UIView\n    private var visualGramBannerView: UIImageView?\n")
+    replace_once(header, "    let backgroundBannerView: UIView\n", "    let backgroundBannerView: UIView\n    private var visualGramBannerMediaView: VisualGramBannerMediaView?\n")
     replace_once(header, "        if let profileGiftsContext, let peer {\n", """        if let peer {
             let appearance = VisualGramLocalAppearance.shared.appearance(accountId: self.context.account.peerId, targetPeerId: peer.id)
-            if appearance.enabled, let banner = appearance.localBanner, let url = VisualGramLocalAppearance.imageURL(banner),
-               FileManager.default.fileExists(atPath: url.path) {
-                let imageView: UIImageView
-                if let existing = self.visualGramBannerView {
-                    imageView = existing
+            if appearance.enabled && (appearance.localBanner != nil || appearance.localBannerMedia != nil) {
+                let mediaView: VisualGramBannerMediaView
+                if let existing = self.visualGramBannerMediaView {
+                    mediaView = existing
                 } else {
-                    imageView = UIImageView()
-                    imageView.contentMode = .scaleAspectFill
-                    imageView.clipsToBounds = true
-                    self.backgroundBannerView.addSubview(imageView)
-                    self.visualGramBannerView = imageView
+                    mediaView = VisualGramBannerMediaView(frame: .zero)
+                    self.backgroundBannerView.addSubview(mediaView)
+                    self.visualGramBannerMediaView = mediaView
                 }
-                if imageView.accessibilityIdentifier != banner.fileName {
-                    imageView.image = UIImage(contentsOfFile: url.path)
-                    imageView.accessibilityIdentifier = banner.fileName
-                }
-                imageView.frame = CGRect(x: 0.0, y: bannerFrame.height - apparentBackgroundHeight, width: bannerFrame.width, height: apparentBackgroundHeight)
+                mediaView.configure(image: appearance.localBanner, media: appearance.localBannerMedia)
+                mediaView.frame = CGRect(x: 0.0, y: bannerFrame.height - apparentBackgroundHeight, width: bannerFrame.width, height: apparentBackgroundHeight)
+                mediaView.setPlaybackAllowed(apparentBackgroundHeight > 80.0 && backgroundBannerAlpha > 0.05)
             } else {
-                self.visualGramBannerView?.removeFromSuperview()
-                self.visualGramBannerView = nil
+                self.visualGramBannerMediaView?.removeFromSuperview()
+                self.visualGramBannerMediaView = nil
             }
         }
 
+        if let profileGiftsContext, let peer {
+""")
+    replace_once(header, "        if let profileGiftsContext, let peer {\n", """        if let mediaView = self.visualGramBannerMediaView {
+            self.backgroundBannerView.bringSubviewToFront(mediaView)
+        }
         if let profileGiftsContext, let peer {
 """)
 

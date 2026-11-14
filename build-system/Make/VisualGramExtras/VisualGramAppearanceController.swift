@@ -1,5 +1,7 @@
 import Foundation
 import UIKit
+import AVFoundation
+import ImageIO
 import Display
 import SwiftSignalKit
 import TelegramCore
@@ -19,17 +21,58 @@ import BusinessHoursSetupScreen
 import BusinessLocationSetupScreen
 
 private final class VisualGramProfilePhotoPicker: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-    private let completion: (UIImage) -> Void
-    init(completion: @escaping (UIImage) -> Void) { self.completion = completion }
+    private let completion: (UIImage?, URL?) -> Void
+    init(completion: @escaping (UIImage?, URL?) -> Void) { self.completion = completion }
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { picker.dismiss(animated: true) }
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
         let image = (info[.editedImage] ?? info[.originalImage]) as? UIImage
-        picker.dismiss(animated: true) { [completion] in if let image { completion(image) } }
+        let mediaURL = info[.mediaURL] as? URL
+        var stagedURL: URL?
+        if let mediaURL, let bytes = try? mediaURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, bytes <= 30 * 1024 * 1024 {
+            let ext = mediaURL.pathExtension.isEmpty ? "mov" : mediaURL.pathExtension
+            let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + ext)
+            if (try? FileManager.default.copyItem(at: mediaURL, to: destination)) != nil {
+                stagedURL = destination
+            }
+        }
+        picker.dismiss(animated: true) { [completion] in
+            completion(image, stagedURL ?? mediaURL)
+            if let stagedURL { try? FileManager.default.removeItem(at: stagedURL) }
+        }
     }
 }
 
+private final class VisualGramBannerDocumentPicker: NSObject, UIDocumentPickerDelegate {
+    private let completion: (URL) -> Void
+    init(completion: @escaping (URL) -> Void) { self.completion = completion }
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else { return }
+        let access = url.startAccessingSecurityScopedResource()
+        self.completion(url)
+        if access { url.stopAccessingSecurityScopedResource() }
+    }
+}
+
+private let visualGramProfileIconCache = NSCache<NSString, UIImage>()
+
+private func visualGramProfileIcon(_ local: VisualGramLocalImage?, round: Bool) -> UIImage? {
+    guard let local, let url = VisualGramLocalAppearance.imageURL(local) else { return nil }
+    let key = (local.fileName + (round ? ":round" : ":rect")) as NSString
+    if let cached = visualGramProfileIconCache.object(forKey: key) { return cached }
+    guard let original = UIImage(contentsOfFile: url.path), original.size.width > 0, original.size.height > 0 else { return nil }
+    let side: CGFloat = 32.0
+    let scale = max(side / original.size.width, side / original.size.height)
+    let size = CGSize(width: original.size.width * scale, height: original.size.height * scale)
+    let result = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+        UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: side, height: side), cornerRadius: round ? side / 2.0 : 7.0).addClip()
+        original.draw(in: CGRect(x: (side - size.width) / 2.0, y: (side - size.height) / 2.0, width: size.width, height: size.height))
+    }
+    visualGramProfileIconCache.setObject(result, forKey: key)
+    return result
+}
+
 private struct VisualGramAppearanceEntry: ItemListNodeEntry {
-    enum Kind: Equatable { case toggle(Bool), button(String), info, singleLine(String, String), multiline(String) }
+    enum Kind: Equatable { case toggle(Bool), button(String), header, info, singleLine(String, String), multiline(String) }
     let stableId: Int32
     let section: ItemListSectionId
     let title: String
@@ -54,13 +97,17 @@ private struct VisualGramAppearanceEntry: ItemListNodeEntry {
         case 902: icon = PresentationResourcesSettings.stars
         case 904: icon = PresentationResourcesSettings.appearance
         case 905, 100: icon = PresentationResourcesSettings.security
-        case 106, 54: icon = PresentationResourcesSettings.appearance
+        case 106: icon = PresentationResourcesSettings.appearance
+        case 54:
+            let appearance = actions.appearance
+            icon = visualGramProfileIcon(appearance.localBannerMedia?.poster ?? appearance.localBanner, round: false) ?? PresentationResourcesSettings.appearance
+        case 53: icon = visualGramProfileIcon(actions.appearance.localAvatar, round: true) ?? PresentationResourcesSettings.photosBlue
         case 1, 102: icon = PresentationResourcesSettings.premium
         case 2, 3: icon = PresentationResourcesSettings.emojiStatus
         case 101: icon = PresentationResourcesSettings.channels
         case 103: icon = PresentationResourcesSettings.messages
         case 104, 120: icon = PresentationResourcesSettings.recentActions
-        case 105, 53: icon = PresentationResourcesSettings.photosBlue
+        case 105: icon = PresentationResourcesSettings.photosBlue
         case 110: icon = PresentationResourcesSettings.block
         case 130: icon = PresentationResourcesSettings.chatAppearance
         default: icon = nil
@@ -70,6 +117,8 @@ private struct VisualGramAppearanceEntry: ItemListNodeEntry {
             return ItemListSwitchItem(presentationData: presentationData, icon: icon, title: self.title, value: value, sectionId: self.section, style: .blocks, updated: { actions.toggle(self.stableId, value: $0) })
         case let .button(label):
             return ItemListDisclosureItem(presentationData: presentationData, icon: icon, title: self.title, label: label, sectionId: self.section, style: .blocks, action: { actions.open(self.stableId) })
+        case .header:
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: self.title, sectionId: self.section)
         case .info:
             return ItemListTextItem(presentationData: presentationData, text: .plain(self.title), sectionId: self.section)
         case let .singleLine(value, placeholder):
@@ -91,6 +140,98 @@ private struct VisualGramProfileDraft: Equatable {
     }
 }
 
+private struct VisualGramFormEntry: ItemListNodeEntry {
+    let stableId: Int32
+    let section: ItemListSectionId
+    let title: String
+    let value: String
+    let theme: PresentationTheme
+
+    static func ==(lhs: Self, rhs: Self) -> Bool {
+        lhs.stableId == rhs.stableId && lhs.section == rhs.section && lhs.title == rhs.title && lhs.value == rhs.value && lhs.theme === rhs.theme
+    }
+
+    static func <(lhs: Self, rhs: Self) -> Bool {
+        lhs.section == rhs.section ? lhs.stableId < rhs.stableId : lhs.section < rhs.section
+    }
+
+    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
+        let actions = arguments as! VisualGramFormActions
+        if self.stableId == 0 {
+            let icon = actions.title == "Баланс звёзд" ? PresentationResourcesSettings.stars : PresentationResourcesSettings.money
+            return ItemListDisclosureItem(presentationData: presentationData, icon: icon, title: self.title, label: "Только у вас", sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
+        } else if self.stableId < 200 {
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: self.title, sectionId: self.section)
+        } else {
+            let index = Int(self.stableId - 200)
+            if actions.title == "Добавить NFT-подарки" || actions.title == "Скрывать сообщения со словами" {
+                return ItemListMultilineInputItem(presentationData: presentationData, systemStyle: .glass, text: self.value, placeholder: "Введите текст", maxLength: ItemListMultilineInputItemTextLimit(value: 4096, display: true), sectionId: self.section, style: .blocks, textUpdated: { actions.update(index: index, text: $0) })
+            }
+            return ItemListSingleLineInputItem(presentationData: presentationData, systemStyle: .glass, title: NSAttributedString(string: "", textColor: self.theme.list.itemPrimaryTextColor), text: self.value, placeholder: "Введите значение", type: actions.inputType, clearType: .always, tag: nil, sectionId: self.section, textUpdated: { actions.update(index: index, text: $0) }, action: {})
+        }
+    }
+}
+
+private final class VisualGramFormActions {
+    let title: String
+    let fields: [(String, String)]
+    let save: ([String]) -> Void
+    let values: ValuePromise<[String]>
+    var currentValues: [String]
+    weak var controller: ItemListController?
+
+    init(title: String, fields: [(String, String)], save: @escaping ([String]) -> Void) {
+        self.title = title
+        self.fields = fields
+        self.save = save
+        self.currentValues = fields.map { $0.1 }
+        self.values = ValuePromise(self.currentValues, ignoreRepeated: true)
+    }
+
+    var inputType: ItemListSingleLineInputItemType {
+        if self.title == "Баланс GRAM" { return .decimal }
+        if self.title == "Баланс звёзд" || self.title == "Уровень Telegram" { return .number }
+        return .regular(capitalization: false, autocorrection: false)
+    }
+
+    func update(index: Int, text: String) {
+        guard self.currentValues.indices.contains(index) else { return }
+        self.currentValues[index] = text
+        self.values.set(self.currentValues)
+    }
+
+    func done() {
+        let values = self.currentValues.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        self.controller?.navigationController?.popViewController(animated: true)
+        self.save(values)
+    }
+}
+
+private func visualGramNativeFormController(context: AccountContext, title: String, fields: [(String, String)], save: @escaping ([String]) -> Void) -> ViewController {
+    let actions = VisualGramFormActions(title: title, fields: fields, save: save)
+    let signal = combineLatest(context.sharedContext.presentationData, actions.values.get())
+    |> deliverOnMainQueue
+    |> map { presentationData, values -> (ItemListControllerState, (ItemListNodeState, Any)) in
+        var entries: [VisualGramFormEntry] = []
+        if title == "Баланс звёзд" || title == "Баланс GRAM" {
+            entries.append(VisualGramFormEntry(stableId: 0, section: 0, title: title, value: "", theme: presentationData.theme))
+        }
+        for index in fields.indices {
+            let section = ItemListSectionId(index + 1)
+            entries.append(VisualGramFormEntry(stableId: Int32(100 + index), section: section, title: fields[index].0, value: "", theme: presentationData.theme))
+            entries.append(VisualGramFormEntry(stableId: Int32(200 + index), section: section, title: fields[index].0, value: values[index], theme: presentationData.theme))
+        }
+        entries.sort()
+        let doneButton = ItemListNavigationButton(content: .text(presentationData.strings.Common_Done), style: .bold, enabled: true, action: { actions.done() })
+        let state = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(title), leftNavigationButton: nil, rightNavigationButton: doneButton, backNavigationButton: ItemListBackButton(title: "VisualGram"))
+        let list = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, animateChanges: true)
+        return (state, (list, actions))
+    }
+    let controller = ItemListController(context: context, state: signal)
+    actions.controller = controller
+    return controller
+}
+
 private final class VisualGramAppearanceActions {
     let context: AccountContext
     weak var controller: ItemListController?
@@ -108,6 +249,7 @@ private final class VisualGramAppearanceActions {
     private var giftDate = Int32(Date().timeIntervalSince1970)
     private var giftText = ""
     private var photoPicker: VisualGramProfilePhotoPicker?
+    private var bannerDocumentPicker: VisualGramBannerDocumentPicker?
 
     init(context: AccountContext) { self.context = context; self.targetPeerId = context.account.peerId }
     deinit { self.disposables.dispose() }
@@ -120,6 +262,10 @@ private final class VisualGramAppearanceActions {
     private func presentNative(_ alert: UIAlertController) {
         var presenter: UIViewController? = self.controller?.navigationController?.view.window?.rootViewController ?? self.controller
         while let presented = presenter?.presentedViewController { presenter = presented }
+        if let popover = alert.popoverPresentationController, let view = presenter?.view {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 60.0, width: 1.0, height: 1.0)
+        }
         presenter?.present(alert, animated: true)
     }
 
@@ -228,28 +374,7 @@ private final class VisualGramAppearanceActions {
     }
 
     func form(title: String, fields: [(String, String)], save: @escaping ([String]) -> Void) {
-        let alert = UIAlertController(title: title, message: nil, preferredStyle: .alert)
-        for (placeholder, value) in fields {
-            alert.addTextField { field in
-                field.placeholder = placeholder
-                field.text = value
-                field.autocapitalizationType = .none
-                field.autocorrectionType = .no
-                if title == "Баланс звёзд" || title == "Баланс GRAM" {
-                    let imageView = UIImageView(image: title == "Баланс звёзд" ? PresentationResourcesSettings.stars : PresentationResourcesSettings.money)
-                    imageView.contentMode = .scaleAspectFit
-                    imageView.frame = CGRect(x: 0, y: 0, width: 28, height: 28)
-                    field.leftView = imageView
-                    field.leftViewMode = .always
-                    field.keyboardType = title == "Баланс звёзд" ? .numberPad : .decimalPad
-                }
-            }
-        }
-        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Сохранить", style: .default, handler: { [weak alert] _ in
-            save(alert?.textFields?.map { $0.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" } ?? [])
-        }))
-        self.presentNative(alert)
+        self.controller?.push(visualGramNativeFormController(context: self.context, title: title, fields: fields, save: save))
     }
 
     private var dateFormatter: DateFormatter {
@@ -367,7 +492,9 @@ private final class VisualGramAppearanceActions {
             alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
             alert.addAction(UIAlertAction(title: "Вернуть", style: .destructive, handler: { [weak self] _ in
                 guard let self else { return }
-                self.update { $0.localName = nil; $0.localUsername = nil; $0.localBio = nil; $0.localAvatar = nil; $0.localBanner = nil }
+                let previousMedia = self.appearance.localBannerMedia
+                self.update { $0.localName = nil; $0.localUsername = nil; $0.localBio = nil; $0.localAvatar = nil; $0.localBanner = nil; $0.localBannerMedia = nil }
+                if let previousMedia { VisualGramLocalAppearance.shared.discardUnusedBannerMedia(previousMedia) }
                 let draft = VisualGramProfileDraft(self.appearance)
                 self.currentProfileDraft = draft
                 self.profileDraft.set(draft)
@@ -387,29 +514,112 @@ private final class VisualGramAppearanceActions {
     }
 
     private func chooseProfileImage(banner: Bool) {
-        let alert = UIAlertController(title: banner ? "Баннер профиля" : "Аватар профиля", message: "Изображение видно только в этом приложении.", preferredStyle: .alert)
+        let alert = UIAlertController(title: banner ? "Баннер профиля" : "Фото профиля", message: "Видно только в этом приложении", preferredStyle: .actionSheet)
         alert.addAction(UIAlertAction(title: "Выбрать фото", style: .default, handler: { [weak self] _ in
-            guard let self else { return }
-            let target = self.targetPeerId
-            let delegate = VisualGramProfilePhotoPicker { [weak self] image in
-                guard let self, let saved = VisualGramLocalAppearance.saveImage(image) else { self?.message("Не удалось сохранить изображение."); return }
-                VisualGramLocalAppearance.shared.update(accountId: self.context.account.peerId, targetPeerId: target) { value in
-                    value.enabled = true
-                    if banner { value.localBanner = saved } else { value.localAvatar = saved }
-                }
-            }
-            self.photoPicker = delegate
-            let picker = UIImagePickerController()
-            picker.sourceType = .photoLibrary
-            picker.allowsEditing = !banner
-            picker.delegate = delegate
-            DispatchQueue.main.async { self.controller?.navigationController?.view.window?.rootViewController?.present(picker, animated: true) }
+            self?.openProfilePicker(banner: banner, video: false)
         }))
+        if banner {
+            alert.addAction(UIAlertAction(title: "Выбрать видео", style: .default, handler: { [weak self] _ in
+                self?.openProfilePicker(banner: true, video: true)
+            }))
+            alert.addAction(UIAlertAction(title: "Выбрать GIF из «Файлов»", style: .default, handler: { [weak self] _ in
+                self?.openBannerGIFPicker()
+            }))
+        }
         alert.addAction(UIAlertAction(title: "Убрать", style: .destructive, handler: { [weak self] _ in
-            self?.update { if banner { $0.localBanner = nil } else { $0.localAvatar = nil } }
+            guard let self else { return }
+            let previousMedia = banner ? self.appearance.localBannerMedia : nil
+            self.update { if banner { $0.localBanner = nil; $0.localBannerMedia = nil } else { $0.localAvatar = nil } }
+            if let previousMedia { VisualGramLocalAppearance.shared.discardUnusedBannerMedia(previousMedia) }
         }))
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
         self.presentNative(alert)
+    }
+
+    private func openProfilePicker(banner: Bool, video: Bool) {
+        let target = self.targetPeerId
+        let delegate = VisualGramProfilePhotoPicker { [weak self] image, mediaURL in
+            guard let self else { return }
+            if video, let mediaURL {
+                self.saveAnimatedBanner(from: mediaURL, kind: .video, target: target)
+            } else if let image, let saved = VisualGramLocalAppearance.saveImage(image) {
+                let previousMedia = banner ? VisualGramLocalAppearance.shared.appearance(accountId: self.context.account.peerId, targetPeerId: target).localBannerMedia : nil
+                VisualGramLocalAppearance.shared.update(accountId: self.context.account.peerId, targetPeerId: target) { value in
+                    value.enabled = true
+                    if banner {
+                        value.localBanner = saved
+                        value.localBannerMedia = nil
+                    } else {
+                        value.localAvatar = saved
+                    }
+                }
+                if let previousMedia { VisualGramLocalAppearance.shared.discardUnusedBannerMedia(previousMedia) }
+            } else {
+                self.message("Не удалось открыть выбранное медиа.")
+            }
+        }
+        self.photoPicker = delegate
+        let picker = UIImagePickerController()
+        picker.sourceType = .photoLibrary
+        picker.mediaTypes = [video ? "public.movie" : "public.image"]
+        picker.allowsEditing = !banner && !video
+        picker.delegate = delegate
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            self.controller?.navigationController?.view.window?.rootViewController?.present(picker, animated: true)
+        }
+    }
+
+    private func openBannerGIFPicker() {
+        let target = self.targetPeerId
+        let delegate = VisualGramBannerDocumentPicker { [weak self] url in
+            self?.saveAnimatedBanner(from: url, kind: .gif, target: target)
+        }
+        self.bannerDocumentPicker = delegate
+        let picker = UIDocumentPickerViewController(documentTypes: ["com.compuserve.gif"], in: .import)
+        picker.delegate = delegate
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            self.controller?.navigationController?.view.window?.rootViewController?.present(picker, animated: true)
+        }
+    }
+
+    private func saveAnimatedBanner(from url: URL, kind: VisualGramLocalBannerMedia.Kind, target: EnginePeer.Id) {
+        guard let bytes = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, bytes > 0 && bytes <= 30 * 1024 * 1024 else {
+            self.message("Баннер должен быть не больше 30 МБ.")
+            return
+        }
+        let poster: UIImage?
+        switch kind {
+        case .gif:
+            if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+               let firstFrame = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 1600] as CFDictionary) {
+                poster = UIImage(cgImage: firstFrame)
+            } else {
+                poster = nil
+            }
+        case .video:
+            let asset = AVURLAsset(url: url)
+            let duration = asset.duration.seconds
+            guard duration.isFinite && duration > 0 && duration <= 30.0 else {
+                self.message("Видео для баннера должно быть не длиннее 30 секунд.")
+                return
+            }
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 1600.0, height: 1600.0)
+            let time = CMTime(seconds: min(0.2, duration / 2.0), preferredTimescale: 600)
+            poster = (try? generator.copyCGImage(at: time, actualTime: nil)).map { UIImage(cgImage: $0) }
+        }
+        guard let poster, let saved = VisualGramLocalAppearance.saveBannerMedia(from: url, kind: kind, poster: poster) else {
+            self.message("Не удалось сохранить баннер. Поддерживаются GIF и видео MOV/MP4 до 30 МБ.")
+            return
+        }
+        let previousMedia = VisualGramLocalAppearance.shared.appearance(accountId: self.context.account.peerId, targetPeerId: target).localBannerMedia
+        VisualGramLocalAppearance.shared.update(accountId: self.context.account.peerId, targetPeerId: target) { value in
+            value.enabled = true
+            value.localBanner = nil
+            value.localBannerMedia = saved
+        }
+        if let previousMedia { VisualGramLocalAppearance.shared.discardUnusedBannerMedia(previousMedia) }
     }
 
     private func usdAmount(ton: Int64) -> Int64? {
@@ -897,7 +1107,9 @@ private func visualGramAppearanceController(context: AccountContext, initialSect
         if activeSection == -1 {
             add(7, -1, "Выбор профиля", .button(actions.targetTitle))
             add(106, -1, "Открытый режим", .toggle(VisualGramLocalAppearance.shared.deviceSettings.openEditorMode))
+            add(800, 0, "Оформление", .header)
             add(900, 0, "Профиль", .button("")); add(901, 0, "Подарки", .button("")); add(902, 0, "Балансы", .button(""))
+            add(801, 1, "Редактор и настройки", .header)
             add(904, 1, "Изменить профиль", .button("Локально"))
             add(905, 1, "Настройки VisualGram", .button("Для всех аккаунтов"))
             add(116, 2, "В скрытом режиме редактор открывается тройным нажатием «Чаты». В открытом режиме кнопка Edit на чужом профиле открывает локальные изменения.", .info)
@@ -923,13 +1135,22 @@ private func visualGramAppearanceController(context: AccountContext, initialSect
                 add(32, 1, "Баланс GRAM", .button(value.grams.map { VisualGramLocalAppearance.formatGrams($0) } ?? "Не задан"))
                 add(33, 1, "Оформить карточку GRAM", .button(""))
             case 3:
+                add(49, 0, "Фото и видео", .header)
                 add(53, 0, "Фото профиля", .button(value.localAvatar == nil ? "Выбрать" : "Изменить"))
-                add(54, 0, "Баннер", .button(value.localBanner == nil ? "Выбрать" : "Изменить"))
+                let bannerLabel: String
+                if let media = value.localBannerMedia {
+                    bannerLabel = media.kind == .gif ? "GIF" : "Видео · без звука"
+                } else {
+                    bannerLabel = value.localBanner == nil ? "Выбрать" : "Фото"
+                }
+                add(54, 0, "Баннер", .button(bannerLabel))
+                add(48, 1, "Данные профиля", .header)
                 add(50, 1, "Имя", .singleLine(draft.name, "Как в Telegram"))
                 add(51, 1, "@", .singleLine(draft.username, "Юзернейм"))
+                add(47, 2, "О себе", .header)
                 add(52, 2, "Описание", .multiline(draft.bio))
                 add(55, 3, "Вернуть исходный профиль", .button(""))
-                add(117, 4, "Изменения видны только на этом устройстве. Кнопка «Готово» сохраняет имя, юзернейм и описание.", .info)
+                add(117, 4, "Баннер: фото, GIF или видео до 30 секунд и 30 МБ. Анимация без звука; при «Уменьшении движения» показывается неподвижный кадр. Изменения видны только на этом устройстве.", .info)
             default:
                 let settings = VisualGramLocalAppearance.shared.deviceSettings
                 add(106, 0, "Открытый режим", .toggle(settings.openEditorMode))

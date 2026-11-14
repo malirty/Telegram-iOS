@@ -17,6 +17,19 @@ public struct VisualGramLocalImage: Codable, Equatable {
     }
 }
 
+public struct VisualGramLocalBannerMedia: Codable, Equatable {
+    public enum Kind: String, Codable { case gif, video }
+    public var fileName: String
+    public var kind: Kind
+    public var poster: VisualGramLocalImage
+
+    public init(fileName: String, kind: Kind, poster: VisualGramLocalImage) {
+        self.fileName = fileName
+        self.kind = kind
+        self.poster = poster
+    }
+}
+
 public struct VisualGramMessageOverride: Codable, Equatable {
     public var text: String?
     public var entities: [MessageTextEntity]?
@@ -237,6 +250,7 @@ public struct VisualGramAppearance: Codable, Equatable {
     public var localBio: String?
     public var localAvatar: VisualGramLocalImage?
     public var localBanner: VisualGramLocalImage?
+    public var localBannerMedia: VisualGramLocalBannerMedia?
     public var premium = false
     public var verified = false
     public var verification: PeerVerification?
@@ -471,6 +485,50 @@ public final class VisualGramLocalAppearance {
         return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
             .appendingPathComponent("VisualGramMedia", isDirectory: true)
             .appendingPathComponent(image.fileName)
+    }
+
+    public static func bannerMediaURL(_ media: VisualGramLocalBannerMedia) -> URL? {
+        guard media.fileName == (media.fileName as NSString).lastPathComponent else { return nil }
+        let ext = (media.fileName as NSString).pathExtension.lowercased()
+        guard (media.kind == .gif && ext == "gif") || (media.kind == .video && (ext == "mov" || ext == "mp4")) else { return nil }
+        return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("VisualGramMedia", isDirectory: true)
+            .appendingPathComponent(media.fileName)
+    }
+
+    public static func saveBannerMedia(from source: URL, kind: VisualGramLocalBannerMedia.Kind, poster: UIImage) -> VisualGramLocalBannerMedia? {
+        guard source.isFileURL,
+              let bytes = try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              bytes > 0 && bytes <= 30 * 1024 * 1024,
+              let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("VisualGramMedia", isDirectory: true) else { return nil }
+        let ext = source.pathExtension.lowercased()
+        guard (kind == .gif && ext == "gif") || (kind == .video && (ext == "mov" || ext == "mp4")) else { return nil }
+        let name = UUID().uuidString + "." + ext
+        let destination = directory.appendingPathComponent(name)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: source, to: destination)
+            guard let savedPoster = Self.saveImage(poster) else {
+                try? FileManager.default.removeItem(at: destination)
+                return nil
+            }
+            return VisualGramLocalBannerMedia(fileName: name, kind: kind, poster: savedPoster)
+        } catch {
+            return nil
+        }
+    }
+
+    public func discardUnusedBannerMedia(_ media: VisualGramLocalBannerMedia) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            self.lock.lock()
+            let stillUsed = self.values.values.contains { value in
+                value.localBannerMedia == media || (value.peerOverrides?.values.contains { $0.localBannerMedia == media } ?? false)
+            }
+            self.lock.unlock()
+            guard !stillUsed else { return }
+            if let url = Self.bannerMediaURL(media) { try? FileManager.default.removeItem(at: url) }
+            if let url = Self.imageURL(media.poster) { try? FileManager.default.removeItem(at: url) }
+        }
     }
 
     public static func saveImage(_ image: UIImage) -> VisualGramLocalImage? {
