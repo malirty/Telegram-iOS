@@ -19,10 +19,48 @@ public struct VisualGramLocalImage: Codable, Equatable {
 
 public struct VisualGramMessageOverride: Codable, Equatable {
     public var text: String?
+    public var entities: [MessageTextEntity]?
     public var image: VisualGramLocalImage?
-    public init(text: String? = nil, image: VisualGramLocalImage? = nil) {
+    public var version: UInt32?
+    public init(text: String? = nil, entities: [MessageTextEntity]? = nil, image: VisualGramLocalImage? = nil, version: UInt32? = nil) {
         self.text = text
+        self.entities = entities
         self.image = image
+        self.version = version
+    }
+}
+
+/// Device-wide preferences shared by every Telegram account in this install.
+public struct VisualGramDeviceSettings: Codable, Equatable {
+    public var ghostMode = false
+    public var hideSponsoredMessages = false
+    public var localPremiumPresentation = false
+    public var confirmMediaSends = false
+    public var messageHistoryEnabled = false
+    public var allowProtectedScreenshots = false
+    public var filteredWords: [String] = []
+
+    public init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case ghostMode, hideSponsoredMessages, localPremiumPresentation, confirmMediaSends, messageHistoryEnabled, allowProtectedScreenshots, filteredWords
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.ghostMode = try values.decodeIfPresent(Bool.self, forKey: .ghostMode) ?? false
+        self.hideSponsoredMessages = try values.decodeIfPresent(Bool.self, forKey: .hideSponsoredMessages) ?? false
+        self.localPremiumPresentation = try values.decodeIfPresent(Bool.self, forKey: .localPremiumPresentation) ?? false
+        self.confirmMediaSends = try values.decodeIfPresent(Bool.self, forKey: .confirmMediaSends) ?? false
+        self.messageHistoryEnabled = try values.decodeIfPresent(Bool.self, forKey: .messageHistoryEnabled) ?? false
+        self.allowProtectedScreenshots = try values.decodeIfPresent(Bool.self, forKey: .allowProtectedScreenshots) ?? false
+        self.filteredWords = try values.decodeIfPresent([String].self, forKey: .filteredWords) ?? []
+    }
+
+    public func hides(_ text: String) -> Bool {
+        return self.filteredWords.contains { word in
+            !word.isEmpty && text.range(of: word, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
     }
 }
 
@@ -243,6 +281,7 @@ public final class VisualGramLocalAppearance {
     private var revisionValue: Int32 = 0
     private var values: [String: VisualGramAppearance]
     private var messageValues: [String: VisualGramMessageOverride]
+    private var storedDeviceSettings: VisualGramDeviceSettings
 
     func snapshotValues() -> [String: VisualGramAppearance] {
         self.lock.lock()
@@ -252,6 +291,15 @@ public final class VisualGramLocalAppearance {
 
     private init() {
         self.defaults = UserDefaults.standard
+        if let data = self.defaults.data(forKey: "visualgram.device.v1"),
+           let decoded = try? JSONDecoder().decode(VisualGramDeviceSettings.self, from: data) {
+            self.storedDeviceSettings = decoded
+        } else {
+            self.storedDeviceSettings = VisualGramDeviceSettings()
+        }
+        // TelegramCore reads this simple flag without depending on TelegramUI.
+        self.defaults.set(self.storedDeviceSettings.ghostMode, forKey: "visualgram.ghost.v1")
+        self.defaults.set(self.storedDeviceSettings.messageHistoryEnabled, forKey: "visualgram.spy.v1")
         if let data = self.defaults.data(forKey: "visualgram.messages.v1"), let decoded = try? JSONDecoder().decode([String: VisualGramMessageOverride].self, from: data) {
             self.messageValues = decoded
         } else {
@@ -319,6 +367,27 @@ public final class VisualGramLocalAppearance {
 
     public var changes: Signal<Int32, NoError> {
         return self.revision.get()
+    }
+
+    public var deviceSettings: VisualGramDeviceSettings {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.storedDeviceSettings
+    }
+
+    public func updateDeviceSettings(_ transform: (inout VisualGramDeviceSettings) -> Void) {
+        self.lock.lock()
+        transform(&self.storedDeviceSettings)
+        let settings = self.storedDeviceSettings
+        if let data = try? JSONEncoder().encode(settings) {
+            self.defaults.set(data, forKey: "visualgram.device.v1")
+        }
+        self.defaults.set(settings.ghostMode, forKey: "visualgram.ghost.v1")
+        self.defaults.set(settings.messageHistoryEnabled, forKey: "visualgram.spy.v1")
+        self.revisionValue &+= 1
+        let revision = self.revisionValue
+        self.lock.unlock()
+        Queue.mainQueue().async { self.revision.set(revision) }
     }
 
     public var pendingScheduledGifts: [VisualGramScheduledGift] {
@@ -430,6 +499,7 @@ public final class VisualGramLocalAppearance {
         let key = Self.messageKey(id)
         var value = self.messageValues[key] ?? VisualGramMessageOverride()
         transform(&value)
+        value.version = (self.messageValues[key]?.version ?? 0) &+ 1
         if value.text == nil && value.image == nil { self.messageValues.removeValue(forKey: key) }
         else { self.messageValues[key] = value }
         if let data = try? JSONEncoder().encode(self.messageValues) { self.defaults.set(data, forKey: "visualgram.messages.v1") }
@@ -446,18 +516,31 @@ public final class VisualGramLocalAppearance {
     public func displayMessage(_ original: Message) -> Message {
         guard let local = self.messageOverride(original.id) else { return original }
         var message = original
-        if let text = local.text { message = message.withUpdatedText(text) }
+        if let text = local.text {
+            message = message.withUpdatedText(text)
+            // A server link preview belongs to the old text as well.
+            message = message.withUpdatedMedia(message.media.filter { !($0 is TelegramMediaWebpage) })
+            // Entity ranges from the server refer to the original text. Reusing
+            // them makes unrelated replacement text look like a URL or phone.
+            var attributes = message.attributes.filter { !($0 is TextEntitiesMessageAttribute) }
+            if let entities = local.entities, !entities.isEmpty {
+                attributes.append(TextEntitiesMessageAttribute(entities: entities))
+            }
+            message = message.withUpdatedAttributes(attributes)
+        }
         if let image = local.image, let media = Self.localImage(image) { message = message.withUpdatedMedia([media]) }
         message = message.withUpdatedAttributes(message.attributes.filter { !($0 is EditedMessageAttribute) })
+        message = message.withUpdatedStableVersion(stableVersion: original.stableVersion &+ (local.version ?? 1))
         return message
     }
 
     public func displayPeer(_ peer: EnginePeer?, accountId: EnginePeer.Id) -> EnginePeer? {
         guard case let .user(original) = peer else { return peer }
         let appearance = self.appearance(accountId: accountId, targetPeerId: original.id)
-        guard appearance.enabled else { return peer }
+        let localPremium = original.id == accountId && self.deviceSettings.localPremiumPresentation
+        guard appearance.enabled || localPremium else { return peer }
         var flags = original.flags
-        if appearance.premium { flags.insert(.isPremium) }
+        if appearance.premium || localPremium { flags.insert(.isPremium) }
         if appearance.verified { flags.insert(.isVerified) }
         var user = original.withUpdatedFlags(flags)
         if let name = appearance.localName, !name.isEmpty { user = user.withUpdatedNames(firstName: name, lastName: nil) }
@@ -495,8 +578,10 @@ public final class VisualGramLocalAppearance {
     }
 
     public func setLocalEmojiStatus(accountId: EnginePeer.Id, targetPeerId: EnginePeer.Id? = nil, status: PeerEmojiStatus?) -> Bool {
-        guard self.appearance(accountId: accountId, targetPeerId: targetPeerId).enabled else { return false }
+        let localPremium = (targetPeerId == nil || targetPeerId == accountId) && self.deviceSettings.localPremiumPresentation
+        guard self.appearance(accountId: accountId, targetPeerId: targetPeerId).enabled || localPremium else { return false }
         self.update(accountId: accountId, targetPeerId: targetPeerId) { value in
+            if localPremium { value.enabled = true }
             value.overridesEmojiStatus = true
             value.emojiStatus = status
         }

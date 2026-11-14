@@ -14,6 +14,7 @@ import EmojiStatusSelectionComponent
 import ChatScheduleTimeController
 import ConfettiEffect
 import PeerNameColorScreen
+import SettingsUI
 import BusinessHoursSetupScreen
 import BusinessLocationSetupScreen
 
@@ -56,6 +57,7 @@ private struct VisualGramAppearanceEntry: ItemListNodeEntry {
             case 901: icon = PresentationResourcesSettings.premiumGift
             case 902: icon = PresentationResourcesSettings.money
             case 904: icon = PresentationResourcesSettings.appearance
+            case 905: icon = PresentationResourcesSettings.security
             default: icon = nil
             }
             return ItemListDisclosureItem(presentationData: presentationData, icon: icon, title: self.title, label: label, sectionId: self.section, style: .blocks, action: { actions.open(self.stableId) })
@@ -70,6 +72,7 @@ private final class VisualGramAppearanceActions {
     weak var controller: ItemListController?
     let disposables = DisposableSet()
     let activeSection = ValuePromise<Int32>(-1, ignoreRepeated: true)
+    var currentSection: Int32 = -1
     let expandedLists = ValuePromise<Int32>(-1, ignoreRepeated: true)
     private var expandedListBits: Int32 = 0
     var targetPeerId: EnginePeer.Id
@@ -99,6 +102,20 @@ private final class VisualGramAppearanceActions {
     }
 
     func toggle(_ id: Int32, value: Bool) {
+        if (100...105).contains(id) {
+            VisualGramLocalAppearance.shared.updateDeviceSettings { settings in
+                switch id {
+                case 100: settings.ghostMode = value
+                case 101: settings.hideSponsoredMessages = value
+                case 102: settings.localPremiumPresentation = value
+                case 103: settings.confirmMediaSends = value
+                case 104: settings.messageHistoryEnabled = value
+                case 105: settings.allowProtectedScreenshots = value
+                default: break
+                }
+            }
+            return
+        }
         if id == 3 {
             if value { self.configureVerification() } else { self.update { $0.verification = nil } }
             return
@@ -124,6 +141,36 @@ private final class VisualGramAppearanceActions {
         self.presentNative(alert)
     }
 
+    private func openMessageJournal() {
+        let accountId = self.context.account.peerId
+        let events = VisualGramMessageJournal.shared.events(accountId: accountId)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd.MM.yyyy HH:mm:ss"
+        self.controller?.push(VisualGramListController(context: self.context, target: accountId, title: "История сообщений", rows: {
+            events.map { event in
+                let title = event.kind == .edited ? "Изменено · чат \(event.peerId)" : "Удалено · чат \(event.peerId)"
+                let preview = event.previousText.isEmpty ? "Медиа без текста" : event.previousText.replacingOccurrences(of: "\n", with: " ")
+                return .init(id: event.id, title: title, subtitle: formatter.string(from: Date(timeIntervalSince1970: TimeInterval(event.date))) + " · " + String(preview.prefix(90)), gift: nil)
+            }
+        }, reorder: nil, open: { [weak self] id in
+            guard let self, let event = events.first(where: { $0.id == id }) else { return }
+            let original = event.previousText.isEmpty ? "Медиа без текста" : event.previousText
+            let detail = event.updatedText.map { "Было:\n\(original)\n\nСтало:\n\($0)" } ?? "Удалённый текст:\n\(original)"
+            self.message(detail)
+        }, edit: { _ in }, delete: { _ in }, allowsEditing: false))
+    }
+
+    private func clearMessageJournal() {
+        let alert = UIAlertController(title: "Очистить историю?", message: "Локальные копии удалённых и изменённых сообщений этого аккаунта будут удалены.", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Очистить", style: .destructive, handler: { [weak self] _ in
+            guard let self else { return }
+            VisualGramMessageJournal.shared.clear(accountId: self.context.account.peerId)
+            VisualGramLocalAppearance.shared.updateDeviceSettings { _ in }
+        }))
+        self.presentNative(alert)
+    }
+
     func form(title: String, fields: [(String, String)], save: @escaping ([String]) -> Void) {
         let alert = UIAlertController(title: title, message: nil, preferredStyle: .alert)
         for (placeholder, value) in fields {
@@ -132,6 +179,14 @@ private final class VisualGramAppearanceActions {
                 field.text = value
                 field.autocapitalizationType = .none
                 field.autocorrectionType = .no
+                if title == "Баланс звёзд" || title == "Баланс GRAM" {
+                    let imageView = UIImageView(image: title == "Баланс звёзд" ? PresentationResourcesSettings.stars : PresentationResourcesSettings.money)
+                    imageView.contentMode = .scaleAspectFit
+                    imageView.frame = CGRect(x: 0, y: 0, width: 28, height: 28)
+                    field.leftView = imageView
+                    field.leftViewMode = .always
+                    field.keyboardType = title == "Баланс звёзд" ? .numberPad : .decimalPad
+                }
             }
         }
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
@@ -156,7 +211,11 @@ private final class VisualGramAppearanceActions {
     }
 
     func open(_ id: Int32) {
-        if (900...902).contains(id) || id == 904 { self.activeSection.set(id == 904 ? 3 : id - 900); return }
+        if (900...902).contains(id) || id == 904 || id == 905 {
+            self.currentSection = id == 904 ? 3 : (id == 905 ? 4 : id - 900)
+            self.activeSection.set(self.currentSection)
+            return
+        }
 
         switch id {
         case 3: self.configureVerification()
@@ -189,7 +248,18 @@ private final class VisualGramAppearanceActions {
         case 16:
             self.controller?.push(BusinessLocationSetupScreen(context: self.context, initialValue: self.appearance.businessLocation, completion: { _ in }, visualGramTarget: self.targetPeerId))
         case 27: self.openGiftList(history: false)
-        case 903: self.activeSection.set(-1)
+        case 903: self.returnToMenu()
+        case 110:
+            self.form(title: "Скрывать сообщения со словами", fields: [("Слова или фразы, разделённые запятыми", VisualGramLocalAppearance.shared.deviceSettings.filteredWords.joined(separator: ", "))]) { values in
+                guard let input = values.first else { return }
+                let words = input.components(separatedBy: CharacterSet(charactersIn: ",\n"))
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                VisualGramLocalAppearance.shared.updateDeviceSettings { $0.filteredWords = Array(words.prefix(100)) }
+            }
+        case 120: self.openMessageJournal()
+        case 121: self.clearMessageJournal()
+        case 130: self.controller?.push(themeSettingsController(context: self.context, focusOnItemTag: .icon))
         case 32:
             self.form(title: "Баланс GRAM", fields: [("GRAM", self.appearance.grams.map { VisualGramLocalAppearance.formatGrams($0) } ?? "")]) { [weak self] values in
                 guard let self, values.count == 1 else { return }
@@ -260,6 +330,11 @@ private final class VisualGramAppearanceActions {
         case 3000..<4000: self.openScheduledGift(index: Int(id - 3000))
         default: break
         }
+    }
+
+    func returnToMenu() {
+        self.currentSection = -1
+        self.activeSection.set(-1)
     }
 
     private func chooseProfileImage(banner: Bool) {
@@ -759,8 +834,8 @@ func visualGramAppearanceController(context: AccountContext) -> ViewController {
         if activeSection == -1 {
             add(900, 0, "Профиль", .button("")); add(901, 0, "Подарки", .button("")); add(902, 0, "Балансы", .button(""))
             add(904, 1, "Локальный профиль", .button("Имя, фото и баннер"))
+            add(905, 1, "Приватность и отображение", .button("Для всех аккаунтов"))
         } else {
-            add(903, -1, "Назад", .button(""))
             switch activeSection {
             case 0:
                 add(1, 0, "Telegram Premium", .toggle(value.premium))
@@ -781,21 +856,44 @@ func visualGramAppearanceController(context: AccountContext) -> ViewController {
                 add(31, 0, "Добавить операцию", .button(""))
                 add(32, 1, "Баланс GRAM", .button(value.grams.map { VisualGramLocalAppearance.formatGrams($0) } ?? "Не задан"))
                 add(33, 1, "Оформить карточку GRAM", .button(""))
-            default:
+            case 3:
                 add(50, 0, "Имя", .button(value.localName ?? "Как в Telegram"))
                 add(51, 0, "Юзернейм", .button(value.localUsername.map { "@" + $0 } ?? "Как в Telegram"))
                 add(52, 0, "Описание", .button(value.localBio ?? "Как в Telegram"))
                 add(53, 1, "Аватар", .button(value.localAvatar == nil ? "Как в Telegram" : "Локальное фото"))
                 add(54, 1, "Баннер", .button(value.localBanner == nil ? "Не задан" : "Локальное фото"))
                 add(55, 2, "Вернуть исходный профиль", .button(""))
+            default:
+                let settings = VisualGramLocalAppearance.shared.deviceSettings
+                add(100, 0, "Режим призрака", .toggle(settings.ghostMode))
+                add(101, 0, "Скрывать рекламу каналов", .toggle(settings.hideSponsoredMessages))
+                add(102, 1, "Локальный вид Premium", .toggle(settings.localPremiumPresentation))
+                add(103, 1, "Подтверждать отправку медиа", .toggle(settings.confirmMediaSends))
+                add(104, 2, "История изменений и удалений", .toggle(settings.messageHistoryEnabled))
+                add(105, 2, "Снимки в защищённых чатах", .toggle(settings.allowProtectedScreenshots))
+                add(120, 2, "Открыть историю сообщений", .button(""))
+                add(121, 2, "Очистить историю сообщений", .button(""))
+                add(110, 3, "Скрываемые слова", .button(settings.filteredWords.isEmpty ? "Не заданы" : String(settings.filteredWords.count)))
+                add(130, 3, "Иконка приложения", .button("Встроенные иконки Telegram"))
+                add(111, 4, "Режим призрака оставляет чаты непрочитанными на этом устройстве. Другие ваши устройства могут отправить отметку о прочтении.", .info)
+                add(112, 4, "Локальный вид Premium не оформляет подписку и не снимает серверные ограничения.", .info)
+                add(113, 4, "История сохраняет на устройстве тексты сообщений, которые приложение успело получить до удаления или изменения.", .info)
+                add(114, 4, "Подтверждение действует для стикеров, GIF и голосовых сообщений.", .info)
+                add(115, 4, "Свою картинку иконки нужно включить в следующую сборку приложения. Здесь доступны встроенные варианты Telegram.", .info)
             }
         }
         entries.sort()
-        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(activeSection == -1 ? "VisualGram" : ["Профиль", "Подарки", "Балансы", "Локальный профиль"][Int(activeSection)]), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
-        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, animateChanges: false)
+        let backButton = activeSection == -1 ? nil : ItemListNavigationButton(content: .text("‹ VisualGram"), style: .regular, enabled: true, action: { actions.returnToMenu() })
+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(activeSection == -1 ? "VisualGram" : ["Профиль", "Подарки", "Балансы", "Локальный профиль", "Приватность"][Int(activeSection)]), leftNavigationButton: backButton, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, animateChanges: true)
         return (controllerState, (listState, actions))
     }
     let controller = ItemListController(context: context, state: signal)
     actions.controller = controller
+    controller.attemptNavigation = { [weak actions] _ in
+        guard let actions, actions.currentSection >= 0 else { return true }
+        actions.returnToMenu()
+        return false
+    }
     return controller
 }
