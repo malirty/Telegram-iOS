@@ -47,19 +47,27 @@ private struct VisualGramAppearanceEntry: ItemListNodeEntry {
 
     func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
         let actions = arguments as! VisualGramAppearanceActions
+        let icon: UIImage?
+        switch self.stableId {
+        case 900: icon = PresentationResourcesSettings.myProfile
+        case 901: icon = PresentationResourcesSettings.premiumGift
+        case 902: icon = PresentationResourcesSettings.stars
+        case 904: icon = PresentationResourcesSettings.appearance
+        case 905, 100: icon = PresentationResourcesSettings.security
+        case 1, 102: icon = PresentationResourcesSettings.premium
+        case 2, 3: icon = PresentationResourcesSettings.emojiStatus
+        case 101: icon = PresentationResourcesSettings.channels
+        case 103: icon = PresentationResourcesSettings.messages
+        case 104, 120: icon = PresentationResourcesSettings.recentActions
+        case 105: icon = PresentationResourcesSettings.photosBlue
+        case 110: icon = PresentationResourcesSettings.block
+        case 130: icon = PresentationResourcesSettings.chatAppearance
+        default: icon = nil
+        }
         switch self.kind {
         case let .toggle(value):
-            return ItemListSwitchItem(presentationData: presentationData, title: self.title, value: value, sectionId: self.section, style: .blocks, updated: { actions.toggle(self.stableId, value: $0) })
+            return ItemListSwitchItem(presentationData: presentationData, icon: icon, title: self.title, value: value, sectionId: self.section, style: .blocks, updated: { actions.toggle(self.stableId, value: $0) })
         case let .button(label):
-            let icon: UIImage?
-            switch self.stableId {
-            case 900: icon = PresentationResourcesSettings.myProfile
-            case 901: icon = PresentationResourcesSettings.premiumGift
-            case 902: icon = PresentationResourcesSettings.money
-            case 904: icon = PresentationResourcesSettings.appearance
-            case 905: icon = PresentationResourcesSettings.security
-            default: icon = nil
-            }
             return ItemListDisclosureItem(presentationData: presentationData, icon: icon, title: self.title, label: label, sectionId: self.section, style: .blocks, action: { actions.open(self.stableId) })
         case .info:
             return ItemListTextItem(presentationData: presentationData, text: .plain(self.title), sectionId: self.section)
@@ -212,8 +220,8 @@ private final class VisualGramAppearanceActions {
 
     func open(_ id: Int32) {
         if (900...902).contains(id) || id == 904 || id == 905 {
-            self.currentSection = id == 904 ? 3 : (id == 905 ? 4 : id - 900)
-            self.activeSection.set(self.currentSection)
+            let section = id == 904 ? 3 : (id == 905 ? 4 : id - 900)
+            self.controller?.push(visualGramAppearanceController(context: self.context, initialSection: section, targetPeerId: self.targetPeerId, targetTitle: self.targetTitle))
             return
         }
 
@@ -333,8 +341,9 @@ private final class VisualGramAppearanceActions {
     }
 
     func returnToMenu() {
-        self.currentSection = -1
-        self.activeSection.set(-1)
+        if self.currentSection >= 0 {
+            self.controller?.navigationController?.popViewController(animated: true)
+        }
     }
 
     private func chooseProfileImage(banner: Bool) {
@@ -820,8 +829,12 @@ private final class VisualGramAppearanceActions {
 
 }
 
-func visualGramAppearanceController(context: AccountContext) -> ViewController {
+func visualGramAppearanceController(context: AccountContext, initialSection: Int32 = -1, targetPeerId: EnginePeer.Id? = nil, targetTitle: String? = nil) -> ViewController {
     let actions = VisualGramAppearanceActions(context: context)
+    actions.currentSection = initialSection
+    actions.activeSection.set(initialSection)
+    if let targetPeerId { actions.targetPeerId = targetPeerId }
+    if let targetTitle { actions.targetTitle = targetTitle }
     let signal = combineLatest(context.sharedContext.presentationData, VisualGramLocalAppearance.shared.changes, actions.expandedLists.get(), actions.activeSection.get())
     |> deliverOnMainQueue
     |> map { presentationData, _, _, activeSection -> (ItemListControllerState, (ItemListNodeState, Any)) in
@@ -830,8 +843,8 @@ func visualGramAppearanceController(context: AccountContext) -> ViewController {
         func add(_ id: Int32, _ section: Int32, _ title: String, _ kind: VisualGramAppearanceEntry.Kind) {
             entries.append(VisualGramAppearanceEntry(stableId: id, section: section, title: title, kind: kind, theme: presentationData.theme))
         }
-        add(7, -1, "Выбор профиля", .button(actions.targetTitle))
         if activeSection == -1 {
+            add(7, -1, "Выбор профиля", .button(actions.targetTitle))
             add(900, 0, "Профиль", .button("")); add(901, 0, "Подарки", .button("")); add(902, 0, "Балансы", .button(""))
             add(904, 1, "Локальный профиль", .button("Имя, фото и баннер"))
             add(905, 1, "Приватность и отображение", .button("Для всех аккаунтов"))
@@ -883,17 +896,11 @@ func visualGramAppearanceController(context: AccountContext) -> ViewController {
             }
         }
         entries.sort()
-        let backButton = activeSection == -1 ? nil : ItemListNavigationButton(content: .text("‹ VisualGram"), style: .regular, enabled: true, action: { actions.returnToMenu() })
-        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(activeSection == -1 ? "VisualGram" : ["Профиль", "Подарки", "Балансы", "Локальный профиль", "Приватность"][Int(activeSection)]), leftNavigationButton: backButton, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(activeSection == -1 ? "VisualGram" : ["Профиль", "Подарки", "Балансы", "Локальный профиль", "Приватность"][Int(activeSection)]), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: activeSection == -1 ? presentationData.strings.Common_Back : "VisualGram"))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, animateChanges: true)
         return (controllerState, (listState, actions))
     }
     let controller = ItemListController(context: context, state: signal)
     actions.controller = controller
-    controller.attemptNavigation = { [weak actions] _ in
-        guard let actions, actions.currentSection >= 0 else { return true }
-        actions.returnToMenu()
-        return false
-    }
     return controller
 }

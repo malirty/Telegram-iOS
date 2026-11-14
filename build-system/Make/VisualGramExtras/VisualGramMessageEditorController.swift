@@ -57,6 +57,7 @@ final class VisualGramMessageEditorController: ViewController, UITextViewDelegat
         self.hint.text = "Выдели текст, затем выбери оформление. Изменения видны только на этом устройстве."
         self.hint.textColor = theme.list.itemSecondaryTextColor
         self.hint.font = UIFont.preferredFont(forTextStyle: .footnote)
+        self.hint.adjustsFontForContentSizeCategory = true
         self.hint.numberOfLines = 0
         self.view.addSubview(self.hint)
 
@@ -64,6 +65,7 @@ final class VisualGramMessageEditorController: ViewController, UITextViewDelegat
         self.textView.backgroundColor = theme.list.itemBlocksBackgroundColor
         self.textView.textColor = theme.list.itemPrimaryTextColor
         self.textView.font = UIFont.preferredFont(forTextStyle: .body)
+        self.textView.adjustsFontForContentSizeCategory = true
         self.textView.layer.cornerRadius = 14
         self.textView.textContainerInset = UIEdgeInsets(top: 14, left: 10, bottom: 14, right: 10)
         self.textView.keyboardDismissMode = .interactive
@@ -80,6 +82,7 @@ final class VisualGramMessageEditorController: ViewController, UITextViewDelegat
             button.tag = index
             button.setTitle(title, for: .normal)
             button.titleLabel?.font = UIFont.preferredFont(forTextStyle: .body)
+            button.titleLabel?.adjustsFontForContentSizeCategory = true
             button.backgroundColor = theme.list.itemBlocksBackgroundColor
             button.tintColor = theme.list.itemAccentColor
             button.layer.cornerRadius = 10
@@ -101,18 +104,26 @@ final class VisualGramMessageEditorController: ViewController, UITextViewDelegat
         let left = layout.safeInsets.left + 16
         let width = max(0, layout.size.width - layout.safeInsets.left - layout.safeInsets.right - 32)
         let bottom = max(layout.inputHeight ?? 0, layout.intrinsicInsets.bottom)
-        self.hint.frame = CGRect(x: left + 2, y: top + 14, width: width - 4, height: 48)
-        let barY = layout.size.height - bottom - 58
-        self.formatBar.frame = CGRect(x: left, y: barY, width: width, height: 48)
+        let availableHeight = max(0, layout.size.height - bottom - top)
+        let showHint = availableHeight >= 180
+        self.hint.isHidden = !showHint
+        let hintHeight = showHint ? min(ceil(self.hint.sizeThatFits(CGSize(width: max(0, width - 4), height: .greatestFiniteMagnitude)).height), availableHeight * 0.27) : 0
+        self.hint.frame = CGRect(x: left + 2, y: top + 12, width: max(0, width - 4), height: hintHeight)
+        let barHeight = min(64, max(48, UIFont.preferredFont(forTextStyle: .body).lineHeight + 18))
+        let barY = max(top, layout.size.height - bottom - barHeight - 10)
+        self.formatBar.frame = CGRect(x: left, y: barY, width: width, height: barHeight)
         var x: CGFloat = 0
         for (index, button) in self.formatButtons.enumerated() {
-            let buttonWidth: CGFloat = index == 6 || index == 7 ? 90 : (index == 8 ? 68 : 48)
-            button.frame = CGRect(x: x, y: 0, width: buttonWidth, height: 44)
+            let minimumWidth: CGFloat = index == 6 || index == 7 ? 90 : (index == 8 ? 68 : 48)
+            let buttonWidth = max(minimumWidth, ceil(button.titleLabel?.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: barHeight)).width ?? 0) + 20)
+            button.frame = CGRect(x: x, y: 0, width: buttonWidth, height: barHeight - 4)
             x += buttonWidth + 7
         }
-        self.formatBar.contentSize = CGSize(width: x, height: 48)
-        self.textView.frame = CGRect(x: left, y: top + 70, width: width, height: max(80, barY - top - 82))
+        self.formatBar.contentSize = CGSize(width: x, height: barHeight)
+        let editorY = top + (showHint ? hintHeight + 22 : 12)
+        self.textView.frame = CGRect(x: left, y: editorY, width: width, height: max(0, barY - editorY - 10))
         self.photoPreview.frame = CGRect(x: self.textView.frame.maxX - 60, y: self.textView.frame.maxY - 60, width: 48, height: 48)
+        self.photoPreview.isHidden = self.localImage == nil || self.textView.frame.height < 64
     }
 
     private func loadOriginalFormatting() {
@@ -240,7 +251,7 @@ final class VisualGramMessageEditorController: ViewController, UITextViewDelegat
     private func updatePhotoPreview() {
         if let image = self.localImage, let url = VisualGramLocalAppearance.imageURL(image) {
             self.photoPreview.image = UIImage(contentsOfFile: url.path)
-            self.photoPreview.isHidden = false
+            self.photoPreview.isHidden = self.textView.frame.height < 64
         } else {
             self.photoPreview.image = nil
             self.photoPreview.isHidden = true

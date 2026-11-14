@@ -21,7 +21,11 @@ manual workflow applies them with `ApplyVisualGramExtras.py` before compiling.
 - Local Premium appearance also enables the local emoji-status picker for the
   current account. Status changes remain in the local profile overlay.
 - Telegram's star/GRAM images appear in their balance entry fields. The back
-  button returns from a VisualGram submenu to its main menu.
+  button returns from a VisualGram submenu to its main menu. VisualGram sections
+  now use Telegram's native push/pop navigation, with its standard transition.
+  Menu switches and sections use the existing Telegram settings artwork.
+- The message editor sizes its hint and formatting toolbar for Dynamic Type and
+  compact heights; the formatting actions remain available in a scrolling row.
 
 ## Limits
 
@@ -44,3 +48,6 @@ The patch chain has been applied successfully to a separate clean worktree on
 Windows. `PostboxImportCheck.py` and Python syntax checks passed. Swift parsing,
 type-checking, simulator screenshots and device behavior still require macOS.
 No IPA was produced by these source edits.
+
+The navigation, icon and Dynamic Type changes above were made after that
+preflight. They still need a macOS compile and visual check before release.
